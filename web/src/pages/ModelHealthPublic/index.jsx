@@ -34,11 +34,11 @@ function hourLabel(tsSec) {
 
 function getRateLevel(rate) {
   const v = Number(rate) || 0;
-  if (v >= 0.99) return { level: 'excellent', color: '#22c55e', bg: 'rgba(34, 197, 94, 0.15)', text: '优秀' };
-  if (v >= 0.95) return { level: 'good', color: '#84cc16', bg: 'rgba(132, 204, 22, 0.15)', text: '良好' };
-  if (v >= 0.8) return { level: 'warning', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)', text: '警告' };
-  if (v >= 0.5) return { level: 'poor', color: '#f97316', bg: 'rgba(249, 115, 22, 0.15)', text: '较差' };
-  return { level: 'critical', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)', text: '严重' };
+  if (v >= 0.99) return { level: 'excellent', color: '#4dd0e1', bg: 'rgba(77, 208, 225, 0.15)', text: '优秀' };
+  if (v >= 0.95) return { level: 'good', color: '#66bb6a', bg: 'rgba(102, 187, 106, 0.15)', text: '良好' };
+  if (v >= 0.8) return { level: 'warning', color: '#aed581', bg: 'rgba(174, 213, 129, 0.15)', text: '警告' };
+  if (v >= 0.5) return { level: 'poor', color: '#ffb74d', bg: 'rgba(255, 183, 77, 0.15)', text: '较差' };
+  return { level: 'critical', color: '#ff8a65', bg: 'rgba(255, 138, 101, 0.15)', text: '严重' };
 }
 
 function HealthCell({ cell, isLatest }) {
@@ -318,8 +318,8 @@ export default function ModelHealthPublicPage() {
             title='监控模型数'
             value={stats.totalModels}
             subtitle={`${stats.healthyModels} 个健康`}
-            color='#22c55e'
-            bgGradient='linear-gradient(135deg, #22c55e 0%, #15803d 100%)'
+            color='#4dd0e1'
+            bgGradient='linear-gradient(135deg, #4dd0e1 0%, #3ba8b6 100%)'
             iconBg='rgba(255,255,255,0.25)'
           />
           <StatCard
@@ -327,8 +327,8 @@ export default function ModelHealthPublicPage() {
             title='整体成功率'
             value={formatRate(stats.overallRate)}
             subtitle={`${stats.totalSuccessSlices}/${stats.totalSlices} 时间片`}
-            color='#3b82f6'
-            bgGradient='linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)'
+            color='#66bb6a'
+            bgGradient='linear-gradient(135deg, #66bb6a 0%, #4a9c5d 100%)'
             iconBg='rgba(255,255,255,0.25)'
           />
           <StatCard
@@ -336,8 +336,8 @@ export default function ModelHealthPublicPage() {
             title='警告模型'
             value={stats.warningModels}
             subtitle='成功率 80-95%'
-            color='#f59e0b'
-            bgGradient='linear-gradient(135deg, #f59e0b 0%, #b45309 100%)'
+            color='#aed581'
+            bgGradient='linear-gradient(135deg, #aed581 0%, #8fb86a 100%)'
             iconBg='rgba(255,255,255,0.25)'
           />
           <StatCard
@@ -345,8 +345,8 @@ export default function ModelHealthPublicPage() {
             title='异常模型'
             value={stats.criticalModels}
             subtitle='成功率 < 80%'
-            color='#ef4444'
-            bgGradient='linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)'
+            color='#ff8a65'
+            bgGradient='linear-gradient(135deg, #ff8a65 0%, #d97350 100%)'
             iconBg='rgba(255,255,255,0.25)'
           />
         </div>
@@ -360,11 +360,11 @@ export default function ModelHealthPublicPage() {
             <div className='flex flex-wrap items-center gap-3'>
               <span className='text-sm font-semibold text-gray-700 dark:text-gray-200 mr-2'>状态图例</span>
               <div className='flex flex-wrap items-center gap-2'>
-                <LegendItem color='#22c55e' label='优秀 (≥99%)' />
-                <LegendItem color='#84cc16' label='良好 (95-99%)' />
-                <LegendItem color='#f59e0b' label='警告 (80-95%)' />
-                <LegendItem color='#f97316' label='较差 (50-80%)' />
-                <LegendItem color='#ef4444' label='严重 (<50%)' />
+                <LegendItem color='#4dd0e1' label='优秀 (≥99%)' />
+                <LegendItem color='#66bb6a' label='良好 (95-99%)' />
+                <LegendItem color='#aed581' label='警告 (80-95%)' />
+                <LegendItem color='#ffb74d' label='较差 (50-80%)' />
+                <LegendItem color='#ff8a65' label='严重 (<50%)' />
               </div>
             </div>
             <Input
