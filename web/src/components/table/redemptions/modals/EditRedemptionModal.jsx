@@ -51,8 +51,6 @@ import {
 
 const { Text, Title } = Typography;
 
-const MAX_COUNT = 100;
-
 const toIntOrNull = (v) => {
   if (v === undefined || v === null || v === '') return null;
   const num = Number.parseInt(String(v), 10);
@@ -146,11 +144,6 @@ const EditRedemptionModal = (props) => {
         showError(msg);
         return;
       }
-    }
-
-    if (!isEdit && count > MAX_COUNT) {
-      showError(t('生成数量上限为 100'));
-      return;
     }
 
     setLoading(true);
@@ -489,7 +482,6 @@ const EditRedemptionModal = (props) => {
                           field='count'
                           label={t('生成数量')}
                           min={1}
-                          max={MAX_COUNT}
                           rules={[
                             { required: true, message: t('请输入生成数量') },
                             {
@@ -498,17 +490,11 @@ const EditRedemptionModal = (props) => {
                                 if (!Number.isFinite(num) || num <= 0) {
                                   return Promise.reject(t('生成数量必须大于0'));
                                 }
-                                if (num > MAX_COUNT) {
-                                  return Promise.reject(
-                                    t('生成数量上限为 100'),
-                                  );
-                                }
                                 return Promise.resolve();
                               },
                             },
                           ]}
                           style={{ width: '100%' }}
-                          extraText={t('单次最多生成 100 个')}
                           showClear
                         />
                       </Col>
