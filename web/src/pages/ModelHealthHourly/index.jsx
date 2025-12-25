@@ -456,7 +456,7 @@ export default function ModelHealthHourlyPage() {
               filter={selectFilter}
               loading={modelsLoading}
               showClear
-              allowCreate
+              searchable
               value={inputs.model_name}
               onChange={(v) => setInputs((prev) => ({ ...prev, model_name: v || '' }))}
               style={{ width: '100%', borderRadius: '10px' }}

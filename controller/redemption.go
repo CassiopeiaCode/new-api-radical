@@ -3,7 +3,6 @@ package controller
 import (
 	crand "crypto/rand"
 	"errors"
-	"fmt"
 	"math/big"
 	"net/http"
 	"strconv"
@@ -84,16 +83,6 @@ func AddRedemption(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "兑换码个数必须大于0",
-		})
-		return
-	}
-
-	const maxCount = 100
-
-	if count > maxCount {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": fmt.Sprintf("一次兑换码批量生成的个数不能大于 %d", maxCount),
 		})
 		return
 	}
