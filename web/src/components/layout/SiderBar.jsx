@@ -87,7 +87,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         className: isAdmin() ? '' : 'tableHiddle',
       },
       {
-        text: t('用户小时调用排行'),
+        text: t('调用排行'),
         itemKey: 'user_hourly_calls_rank',
         to: '/console/user-hourly-calls-rank',
         className: isAdmin() ? '' : 'tableHiddle',

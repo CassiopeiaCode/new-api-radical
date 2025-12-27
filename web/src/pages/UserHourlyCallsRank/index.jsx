@@ -142,7 +142,7 @@ export default function UserHourlyCallsRankPage() {
     <div className='mt-[60px] px-2'>
       <Card
         className='!rounded-2xl'
-        title='用户小时调用排行'
+        title='调用排行'
         headerExtraContent={
           <Space>
             <Button
