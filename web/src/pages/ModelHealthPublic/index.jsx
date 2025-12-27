@@ -55,7 +55,6 @@ function HealthCell({ cell, isLatest }) {
           <div className='font-semibold mb-1.5 text-sm'>{hourLabel(cell?.hour_start_ts)}</div>
           <div className='space-y-1'>
             <div>成功率: <span className='font-medium'>{isFilled ? `~${formatRate(rate)}` : formatRate(rate)}</span></div>
-            {!isFilled && <div>成功/总计: <span className='font-medium'>{success}/{total}</span></div>}
             {isFilled && <div className='text-gray-400 italic'>无数据，使用平均值</div>}
           </div>
         </div>
@@ -326,7 +325,7 @@ export default function ModelHealthPublicPage() {
             icon={<IconTickCircle className='text-white' size='large' />}
             title='整体成功率'
             value={formatRate(stats.overallRate)}
-            subtitle={`${stats.totalSuccessSlices}/${stats.totalSlices} 时间片`}
+            subtitle='过去24小时'
             color='#66bb6a'
             bgGradient='linear-gradient(135deg, #66bb6a 0%, #4a9c5d 100%)'
             iconBg='rgba(255,255,255,0.25)'
@@ -431,7 +430,7 @@ export default function ModelHealthPublicPage() {
                             {formatRate(model.avg_rate)}
                           </span>
                           <span className='text-gray-400 font-medium'>
-                            {model.total_success}/{model.total_slices}
+                            24h 平均
                           </span>
                         </div>
                       </div>
