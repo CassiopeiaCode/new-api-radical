@@ -219,7 +219,7 @@ export default function ModelHealthPublicPage() {
       const { level } = getRateLevel(avgRate);
       if (level === 'excellent' || level === 'good') healthyModels++;
       else if (level === 'warning') warningModels++;
-      else criticalModels++;
+      else if (level === 'critical') criticalModels++;
 
       const hourlyData = hourStarts.map((ts) => {
         const stat = hourMap?.get(ts);
