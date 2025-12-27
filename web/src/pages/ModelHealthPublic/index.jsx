@@ -273,7 +273,7 @@ export default function ModelHealthPublicPage() {
 
 
   return (
-    <div className='mt-[60px] px-3 sm:px-6 lg:px-8 pb-10 max-w-[1800px] mx-auto'>
+    <div className='mt-[60px] px-3 sm:px-6 lg:px-8 pb-10 max-w-6xl mx-auto'>
       {/* Header */}
       <div className='mb-8'>
         <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
