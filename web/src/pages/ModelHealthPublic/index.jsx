@@ -344,7 +344,7 @@ export default function ModelHealthPublicPage() {
             icon={<IconClose className='text-white' size='large' />}
             title='异常模型'
             value={stats.criticalModels}
-            subtitle='成功率 < 80%'
+            subtitle='成功率 < 20%'
             color='#ff8a65'
             bgGradient='linear-gradient(135deg, #ff8a65 0%, #d97350 100%)'
             iconBg='rgba(255,255,255,0.25)'
