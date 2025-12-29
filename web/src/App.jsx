@@ -57,6 +57,7 @@ const UserHourlyCallsRank = lazy(() => import('./pages/UserHourlyCallsRank'));
 const About = lazy(() => import('./pages/About'));
 const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const Checkin = lazy(() => import('./pages/Checkin'));
 
 function App() {
   const location = useLocation();
@@ -246,6 +247,16 @@ function App() {
             <PrivateRoute>
               <Suspense fallback={<Loading></Loading>} key={location.pathname}>
                 <TopUp />
+              </Suspense>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path='/console/checkin'
+          element={
+            <PrivateRoute>
+              <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+                <Checkin />
               </Suspense>
             </PrivateRoute>
           }

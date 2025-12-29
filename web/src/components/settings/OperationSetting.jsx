@@ -26,6 +26,7 @@ import SettingsSensitiveWords from '../../pages/Setting/Operation/SettingsSensit
 import SettingsLog from '../../pages/Setting/Operation/SettingsLog';
 import SettingsMonitoring from '../../pages/Setting/Operation/SettingsMonitoring';
 import SettingsCreditLimit from '../../pages/Setting/Operation/SettingsCreditLimit';
+import SettingsCheckin from '../../pages/Setting/Operation/SettingsCheckin';
 import { API, showError, toBoolean } from '../../helpers';
 
 const OperationSetting = () => {
@@ -36,6 +37,13 @@ const OperationSetting = () => {
     QuotaForInviter: 0,
     QuotaForInvitee: 0,
     'quota_setting.enable_free_model_pre_consume': true,
+
+    /* 签到设置 */
+    'checkin_setting.checkin_enabled': false,
+    'checkin_setting.checkin_quota': 0,
+    'checkin_setting.checkin_min_quota': 0,
+    'checkin_setting.checkin_max_quota': 0,
+    'checkin_setting.checkin_random_mode': false,
 
     /* 通用设置 */
     TopUpLink: '',
@@ -139,6 +147,10 @@ const OperationSetting = () => {
         {/* 额度设置 */}
         <Card style={{ marginTop: '10px' }}>
           <SettingsCreditLimit options={inputs} refresh={onRefresh} />
+        </Card>
+        {/* 签到设置 */}
+        <Card style={{ marginTop: '10px' }}>
+          <SettingsCheckin options={inputs} refresh={onRefresh} />
         </Card>
       </Spin>
     </>

@@ -269,6 +269,7 @@ func migrateDB() error {
 		&TwoFABackupCode{},
 		&ModelHealthSlice5m{},
 		&UserCallHourly{},
+		&Checkin{},
 	)
 	if err != nil {
 		return err
