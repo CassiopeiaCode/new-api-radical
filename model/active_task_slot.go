@@ -107,24 +107,19 @@ func computeHashPrefixes(data string) ([HashLevelCount][HashPrefixLen]byte, int)
 	return result, maxLevelIdx
 }
 
-// matchHashPrefix 检查是否有任意一级哈希匹配
-// 只匹配从最高级往下 MatchLevelCount 个层级
-func matchHashPrefix(a, b [HashLevelCount][HashPrefixLen]byte, maxLevelIdxA, maxLevelIdxB int) bool {
-	// 取两者中较小的最高层级
-	maxLevel := maxLevelIdxA
-	if maxLevelIdxB < maxLevel {
-		maxLevel = maxLevelIdxB
-	}
-	
-	// 计算匹配范围：从 maxLevel 往下 MatchLevelCount 个层级
-	startLevel := maxLevel - MatchLevelCount + 1
+// matchHashPrefix 检查是否有哈希匹配
+// 基于当前请求的最高级往下 MatchLevelCount 个层级进行匹配
+func matchHashPrefix(slotHash, newHash [HashLevelCount][HashPrefixLen]byte, slotMaxLevel, newMaxLevel int) bool {
+	// 基于当前请求文本的最高级往下匹配
+	startLevel := newMaxLevel - MatchLevelCount + 1
 	if startLevel < 0 {
 		startLevel = 0
 	}
 	
-	// 只在这个范围内匹配
-	for i := startLevel; i <= maxLevel; i++ {
-		if bytes.Equal(a[i][:], b[i][:]) {
+	// 只在当前请求的匹配范围内比较
+	for i := startLevel; i <= newMaxLevel; i++ {
+		// 槽的该层级必须有效（槽的数据长度也要覆盖到这一级）
+		if i <= slotMaxLevel && bytes.Equal(slotHash[i][:], newHash[i][:]) {
 			return true
 		}
 	}
