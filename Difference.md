@@ -8,4 +8,4 @@
 6. 实现模型自定义配置没有将特定role转换为另一种role的功能的话实现它。不是全局模型映射，而是每个渠道一个配置，加入渠道额外设置
 7. 实现强制在日志记录IP，即使用户关闭IP记录【已实现】
 8. web\public\oauth-redirect.html 多站点重定向登录【已实现】
-9. 实现接入 fingerprintjs/fingerprintjs 库，记录用户的历史5次visitor id，并实现管理员查询相同visitor id的用户，也就是说创建一个管理员可见的在工作台的面板，面板名称4个字
+9. 实现接入 fingerprintjs/fingerprintjs 库，记录用户的历史5次visitor id（去重后的5次），并实现管理员查询相同visitor id的用户，也就是说创建一个管理员可见的在工作台的面板，面板名称4个字

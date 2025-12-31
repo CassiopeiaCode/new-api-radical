@@ -58,6 +58,7 @@ const About = lazy(() => import('./pages/About'));
 const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const Checkin = lazy(() => import('./pages/Checkin'));
+const Fingerprint = lazy(() => import('./pages/Fingerprint'));
 
 function App() {
   const location = useLocation();
@@ -259,6 +260,16 @@ function App() {
                 <Checkin />
               </Suspense>
             </PrivateRoute>
+          }
+        />
+        <Route
+          path='/console/fingerprint'
+          element={
+            <AdminRoute>
+              <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+                <Fingerprint />
+              </Suspense>
+            </AdminRoute>
           }
         />
         <Route

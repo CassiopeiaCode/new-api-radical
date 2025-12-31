@@ -270,6 +270,7 @@ func migrateDB() error {
 		&ModelHealthSlice5m{},
 		&UserCallHourly{},
 		&Checkin{},
+		&UserFingerprint{},
 	)
 	if err != nil {
 		return err

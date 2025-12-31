@@ -26,6 +26,7 @@ import { ToastContainer } from 'react-toastify';
 import React, { useContext, useEffect, useState } from 'react';
 import { useIsMobile } from '../../hooks/common/useIsMobile';
 import { useSidebarCollapsed } from '../../hooks/common/useSidebarCollapsed';
+import { useFingerprint } from '../../hooks/common/useFingerprint';
 import { useTranslation } from 'react-i18next';
 import {
   API,
@@ -40,13 +41,17 @@ import { useLocation } from 'react-router-dom';
 const { Sider, Content, Header } = Layout;
 
 const PageLayout = () => {
-  const [, userDispatch] = useContext(UserContext);
+  const [userState, userDispatch] = useContext(UserContext);
   const [, statusDispatch] = useContext(StatusContext);
   const isMobile = useIsMobile();
   const [collapsed, , setCollapsed] = useSidebarCollapsed();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { i18n } = useTranslation();
   const location = useLocation();
+
+  // 指纹收集：用户登录后每小时上报一次
+  const isLoggedIn = !!userState?.user?.id;
+  useFingerprint(isLoggedIn);
 
   const cardProPages = [
     '/console/channel',

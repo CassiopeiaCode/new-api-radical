@@ -51,6 +51,7 @@ const routerMap = {
   models: '/console/models',
   playground: '/console/playground',
   personal: '/console/personal',
+  fingerprint: '/console/fingerprint',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -201,6 +202,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         itemKey: 'setting',
         to: '/setting',
         className: isRoot() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('关联追踪'),
+        itemKey: 'fingerprint',
+        to: '/console/fingerprint',
+        className: isAdmin() ? '' : 'tableHiddle',
       },
     ];
 

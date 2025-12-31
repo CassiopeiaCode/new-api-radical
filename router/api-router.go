@@ -286,5 +286,23 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			publicModelHealthRoute.GET("/hourly_last24h", controller.GetPublicModelsHealthHourlyLast24hAPI)
 		}
+
+		// Fingerprint routes
+		fingerprintRoute := apiRouter.Group("/fingerprint")
+		fingerprintRoute.Use(middleware.UserAuth())
+		{
+			fingerprintRoute.POST("/record", controller.RecordFingerprint)
+			fingerprintRoute.GET("/self", controller.GetUserFingerprints)
+		}
+
+		// Admin fingerprint routes
+		adminFingerprintRoute := apiRouter.Group("/fingerprint")
+		adminFingerprintRoute.Use(middleware.AdminAuth())
+		{
+			adminFingerprintRoute.GET("/", controller.GetAllFingerprints)
+			adminFingerprintRoute.GET("/search", controller.SearchFingerprints)
+			adminFingerprintRoute.GET("/users", controller.FindUsersByVisitorId)
+			adminFingerprintRoute.GET("/duplicates", controller.GetDuplicateVisitorIds)
+		}
 	}
 }
