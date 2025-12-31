@@ -65,6 +65,7 @@ export default function SettingsSidebarModulesAdmin(props) {
       models: true,
       model_health: true,
       user_hourly_calls_rank: true,
+      active_task_rank: true,
       recent_calls: true,
       redemption: true,
       user: true,
@@ -200,6 +201,7 @@ export default function SettingsSidebarModulesAdmin(props) {
             models: true,
             model_health: true,
             user_hourly_calls_rank: true,
+            active_task_rank: true,
             recent_calls: true,
             redemption: true,
             user: true,
@@ -266,6 +268,7 @@ export default function SettingsSidebarModulesAdmin(props) {
         { key: 'models', title: t('模型管理'), description: t('AI模型配置') },
         { key: 'model_health', title: t('模型健康度'), description: t('模型健康状态监控') },
         { key: 'user_hourly_calls_rank', title: t('调用排行'), description: t('用户调用次数统计') },
+        { key: 'active_task_rank', title: t('活跃任务'), description: t('用户活跃任务数监控') },
         { key: 'recent_calls', title: t('最近调用'), description: t('最近API调用记录') },
         {
           key: 'redemption',
