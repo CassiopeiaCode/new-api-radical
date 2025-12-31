@@ -146,6 +146,9 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 			IsError:   true,
 		})
 	}
+
+	// 记录活跃任务槽
+	RecordActiveTaskSlot(c, userId, username, modelName)
 }
 
 type RecordConsumeLogParams struct {
@@ -225,6 +228,9 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		CreatedAt: log.CreatedAt,
 		IsError:   false,
 	})
+
+	// 记录活跃任务槽
+	RecordActiveTaskSlot(c, userId, username, params.ModelName)
 }
 
 func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string) (logs []*Log, total int64, err error) {

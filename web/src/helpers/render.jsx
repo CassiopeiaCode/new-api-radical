@@ -75,6 +75,7 @@ import {
   Package,
   CalendarCheck,
   Fingerprint,
+  Activity,
 } from 'lucide-react';
 
 // 获取侧边栏Lucide图标组件
@@ -126,6 +127,8 @@ export function getLucideIcon(key, selected = false) {
       return <Settings {...commonProps} color={iconColor} />;
     case 'fingerprint':
       return <Fingerprint {...commonProps} color={iconColor} />;
+    case 'active_task_rank':
+      return <Activity {...commonProps} color={iconColor} />;
     default:
       return <CircleUser {...commonProps} color={iconColor} />;
   }

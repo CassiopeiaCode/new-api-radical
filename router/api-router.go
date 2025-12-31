@@ -304,5 +304,13 @@ func SetApiRouter(router *gin.Engine) {
 			adminFingerprintRoute.GET("/users", controller.FindUsersByVisitorId)
 			adminFingerprintRoute.GET("/duplicates", controller.GetDuplicateVisitorIds)
 		}
+
+		// Active task routes (admin only)
+		activeTaskRoute := apiRouter.Group("/active_task")
+		activeTaskRoute.Use(middleware.AdminAuth())
+		{
+			activeTaskRoute.GET("/rank", controller.GetActiveTaskRankAPI)
+			activeTaskRoute.GET("/stats", controller.GetActiveTaskStatsAPI)
+		}
 	}
 }

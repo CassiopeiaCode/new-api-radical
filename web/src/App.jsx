@@ -54,6 +54,7 @@ const ModelHealthHourly = lazy(() => import('./pages/ModelHealthHourly'));
 const ModelHealthPublic = lazy(() => import('./pages/ModelHealthPublic'));
 const RecentCalls = lazy(() => import('./pages/RecentCalls'));
 const UserHourlyCallsRank = lazy(() => import('./pages/UserHourlyCallsRank'));
+const ActiveTaskRank = lazy(() => import('./pages/ActiveTaskRank'));
 const About = lazy(() => import('./pages/About'));
 const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
@@ -328,6 +329,17 @@ function App() {
             <AdminRoute>
               <Suspense fallback={<Loading></Loading>} key={location.pathname}>
                 <RecentCalls />
+              </Suspense>
+            </AdminRoute>
+          }
+        />
+
+        <Route
+          path='/console/active-task-rank'
+          element={
+            <AdminRoute>
+              <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+                <ActiveTaskRank />
               </Suspense>
             </AdminRoute>
           }

@@ -45,6 +45,7 @@ const routerMap = {
   detail: '/console',
   model_health: '/console/model-health-hourly',
   user_hourly_calls_rank: '/console/user-hourly-calls-rank',
+  active_task_rank: '/console/active-task-rank',
   recent_calls: '/console/recent-calls',
   pricing: '/pricing',
   task: '/console/task',
@@ -177,6 +178,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('调用排行'),
         itemKey: 'user_hourly_calls_rank',
         to: '/console/user-hourly-calls-rank',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('活跃任务'),
+        itemKey: 'active_task_rank',
+        to: '/console/active-task-rank',
         className: isAdmin() ? '' : 'tableHiddle',
       },
       {
