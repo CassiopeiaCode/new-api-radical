@@ -80,7 +80,7 @@ func GetHighActiveTaskHistoryAPI(c *gin.Context) {
 
 	records, err := model.GetHighActiveTaskHistory(startTime, endTime, userId, limit)
 	if err != nil {
-		common.ApiError(c, "获取历史记录失败: "+err.Error())
+		common.ApiErrorMsg(c, "获取历史记录失败: "+err.Error())
 		return
 	}
 
