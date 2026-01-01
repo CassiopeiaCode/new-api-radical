@@ -72,6 +72,7 @@ import {
   User,
   Settings,
   CircleUser,
+  Package,
   CalendarCheck,
   Fingerprint,
   Activity,
