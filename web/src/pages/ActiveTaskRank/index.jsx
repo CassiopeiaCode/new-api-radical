@@ -183,7 +183,10 @@ export default function ActiveTaskRankPage() {
                   { label: '30秒', value: 30 },
                   { label: '60秒', value: 60 },
                   { label: '120秒', value: 120 },
-                  { label: '300秒', value: 300 },
+                  { label: '300秒 (5分钟)', value: 300 },
+                  { label: '600秒 (10分钟)', value: 600 },
+                  { label: '1800秒 (30分钟)', value: 1800 },
+                  { label: '3600秒 (1小时)', value: 3600 },
                 ]}
                 value={inputs.window}
                 onChange={(v) => setInputs((prev) => ({ ...prev, window: Number(v) || 30 }))}

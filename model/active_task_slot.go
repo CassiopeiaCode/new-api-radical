@@ -324,6 +324,72 @@ func (m *ActiveTaskSlotManager) GetStats() map[string]interface{} {
 	}
 }
 
+// 高活跃任务告警相关常量
+const (
+	// HighActiveTaskScanInterval 扫描间隔（秒）
+	HighActiveTaskScanInterval = 60
+	// HighActiveTaskThreshold 告警阈值
+	HighActiveTaskThreshold = 10
+	// HighActiveTaskWindowSeconds 统计窗口（秒）
+	HighActiveTaskWindowSeconds = 300
+)
+
+// GetHighActiveUsers 获取指定时间窗口内活跃任务数超过阈值的用户
+func (m *ActiveTaskSlotManager) GetHighActiveUsers(windowSeconds int64, threshold int) []UserActiveTaskCount {
+	rank := m.GetActiveTaskRank(windowSeconds)
+	var result []UserActiveTaskCount
+	for _, u := range rank {
+		if u.ActiveSlots >= threshold {
+			result = append(result, u)
+		}
+	}
+	return result
+}
+
+// StartHighActiveTaskScanner 启动高活跃任务扫描器
+func StartHighActiveTaskScanner() {
+	go func() {
+		ticker := time.NewTicker(HighActiveTaskScanInterval * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			scanAndNotifyHighActiveUsers()
+		}
+	}()
+}
+
+// scanAndNotifyHighActiveUsers 扫描并通知管理员高活跃用户
+func scanAndNotifyHighActiveUsers() {
+	manager := GetActiveTaskSlotManager()
+	highActiveUsers := manager.GetHighActiveUsers(HighActiveTaskWindowSeconds, HighActiveTaskThreshold)
+	
+	if len(highActiveUsers) == 0 {
+		return
+	}
+	
+	// 构建通知内容
+	content := fmt.Sprintf("检测到 %d 个用户在 %d 秒内活跃任务数超过 %d：\n", 
+		len(highActiveUsers), HighActiveTaskWindowSeconds, HighActiveTaskThreshold)
+	for _, u := range highActiveUsers {
+		content += fmt.Sprintf("- 用户 %s (ID:%d): %d 个活跃任务\n", u.Username, u.UserID, u.ActiveSlots)
+	}
+	
+	// 获取所有管理员并发送站内信
+	notifyAllAdmins(content)
+}
+
+// notifyAllAdmins 给所有管理员发送站内信
+func notifyAllAdmins(content string) {
+	var admins []User
+	err := DB.Where("role >= ?", 10).Select("id").Find(&admins).Error
+	if err != nil {
+		return
+	}
+	
+	for _, admin := range admins {
+		RecordLog(admin.Id, LogTypeSystem, content)
+	}
+}
+
 // RecordActiveTaskSlot 记录活跃任务槽（从请求上下文中提取数据）
 // 使用 用户ID + 模型名 + 请求体哈希 作为任务标识
 func RecordActiveTaskSlot(c interface{}, userID int, username string, modelName string) {

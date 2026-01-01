@@ -116,6 +116,10 @@ func main() {
 		model.InitBatchUpdater()
 	}
 
+	// 启动高活跃任务扫描器
+	model.StartHighActiveTaskScanner()
+	common.SysLog("high active task scanner started")
+
 	if os.Getenv("ENABLE_PPROF") == "true" {
 		gopool.Go(func() {
 			log.Println(http.ListenAndServe("0.0.0.0:8005", nil))
