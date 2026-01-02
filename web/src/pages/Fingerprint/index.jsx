@@ -80,6 +80,7 @@ export default function FingerprintPage() {
   // 关联用户弹窗
   const [usersModalVisible, setUsersModalVisible] = useState(false);
   const [selectedVisitorId, setSelectedVisitorId] = useState('');
+  const [selectedIp, setSelectedIp] = useState('');
   const [relatedUsers, setRelatedUsers] = useState([]);
   const [relatedUsersLoading, setRelatedUsersLoading] = useState(false);
 
@@ -160,8 +161,9 @@ export default function FingerprintPage() {
   }, [activeTab]);
 
   // 查看关联用户
-  const handleViewUsers = (visitorId) => {
+  const handleViewUsers = (visitorId, ip) => {
     setSelectedVisitorId(visitorId);
+    setSelectedIp(ip || '');
     setUsersModalVisible(true);
     loadRelatedUsers(visitorId);
   };
@@ -185,6 +187,12 @@ export default function FingerprintPage() {
         ),
       },
       {
+        title: 'IP',
+        dataIndex: 'ip',
+        key: 'ip',
+        width: 140,
+      },
+      {
         title: t('关联用户数'),
         dataIndex: 'user_count',
         key: 'user_count',
@@ -206,7 +214,7 @@ export default function FingerprintPage() {
           <Button
             size='small'
             type='primary'
-            onClick={() => handleViewUsers(record.visitor_id)}
+            onClick={() => handleViewUsers(record.visitor_id, record.ip)}
           >
             {t('查看用户')}
           </Button>
@@ -312,10 +320,24 @@ export default function FingerprintPage() {
         width: 120,
       },
       {
-        title: t('邮箱'),
-        dataIndex: 'email',
-        key: 'email',
-        width: 180,
+        title: t('额度'),
+        dataIndex: 'quota',
+        key: 'quota',
+        width: 100,
+        render: (v) => (v / 500000).toFixed(2),
+      },
+      {
+        title: t('已用额度'),
+        dataIndex: 'used_quota',
+        key: 'used_quota',
+        width: 100,
+        render: (v) => (v / 500000).toFixed(2),
+      },
+      {
+        title: t('调用次数'),
+        dataIndex: 'request_count',
+        key: 'request_count',
+        width: 100,
       },
       {
         title: t('状态'),
@@ -330,12 +352,6 @@ export default function FingerprintPage() {
         key: 'role',
         width: 80,
         render: renderRole,
-      },
-      {
-        title: 'IP',
-        dataIndex: 'ip',
-        key: 'ip',
-        width: 140,
       },
       {
         title: t('记录时间'),
@@ -391,7 +407,7 @@ export default function FingerprintPage() {
               columns={duplicatesColumns}
               dataSource={(duplicates || []).map((r, idx) => ({
                 ...r,
-                key: r.visitor_id || idx,
+                key: `${r.visitor_id}-${r.ip || idx}`,
               }))}
               pagination={{
                 currentPage: duplicatesPage,
@@ -447,7 +463,7 @@ export default function FingerprintPage() {
       <Modal
         title={
           <span>
-            {t('关联用户')} - <code>{selectedVisitorId}</code>
+            {t('关联用户')} - <code>{selectedVisitorId}</code> {selectedIp && <span>IP: <code>{selectedIp}</code></span>}
           </span>
         }
         visible={usersModalVisible}

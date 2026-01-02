@@ -76,15 +76,18 @@ func GetUserFingerprints(userId int) ([]UserFingerprint, error) {
 
 // UserWithFingerprint 用于返回用户信息和指纹
 type UserWithFingerprint struct {
-	Id          int    `json:"id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
-	Status      int    `json:"status"`
-	Role        int    `json:"role"`
-	VisitorId   string `json:"visitor_id"`
-	RecordTime  string `json:"record_time"`
-	IP          string `json:"ip"`
+	Id           int    `json:"id"`
+	Username     string `json:"username"`
+	DisplayName  string `json:"display_name"`
+	Email        string `json:"email"`
+	Status       int    `json:"status"`
+	Role         int    `json:"role"`
+	Quota        int    `json:"quota"`
+	UsedQuota    int    `json:"used_quota"`
+	RequestCount int    `json:"request_count"`
+	VisitorId    string `json:"visitor_id"`
+	RecordTime   string `json:"record_time"`
+	IP           string `json:"ip"`
 }
 
 // FindUsersByVisitorId 查找具有相同visitor id的用户
@@ -104,6 +107,7 @@ func FindUsersByVisitorId(visitorId string, pageInfo *common.PageInfo) ([]UserWi
 	// 查询用户信息
 	query := `
 		SELECT DISTINCT u.id, u.username, u.display_name, u.email, u.status, u.role, 
+			   u.quota, u.used_quota, u.request_count,
 			   f.visitor_id, f.created_at as record_time, f.ip
 		FROM user_fingerprints f
 		JOIN users u ON f.user_id = u.id
@@ -173,15 +177,15 @@ func SearchFingerprints(keyword string, pageInfo *common.PageInfo) ([]UserWithFi
 	return results, total, err
 }
 
-// GetDuplicateVisitorIds 获取有多个用户使用的visitor id列表
+// GetDuplicateVisitorIds 获取有多个用户使用的visitor id列表（需要visitor_id和ip都相同才算重复）
 func GetDuplicateVisitorIds(pageInfo *common.PageInfo) ([]map[string]interface{}, int64, error) {
 	var total int64
 
-	// 统计有重复的visitor_id数量
+	// 统计有重复的visitor_id + ip组合数量
 	countQuery := `
 		SELECT COUNT(*) FROM (
-			SELECT visitor_id FROM user_fingerprints 
-			GROUP BY visitor_id 
+			SELECT visitor_id, ip FROM user_fingerprints 
+			GROUP BY visitor_id, ip 
 			HAVING COUNT(DISTINCT user_id) > 1
 		) AS duplicates
 	`
@@ -190,11 +194,11 @@ func GetDuplicateVisitorIds(pageInfo *common.PageInfo) ([]map[string]interface{}
 		return nil, 0, err
 	}
 
-	// 查询重复的visitor_id及其用户数
+	// 查询重复的visitor_id + ip组合及其用户数
 	query := `
-		SELECT visitor_id, COUNT(DISTINCT user_id) as user_count, MAX(created_at) as last_seen
+		SELECT visitor_id, ip, COUNT(DISTINCT user_id) as user_count, MAX(created_at) as last_seen
 		FROM user_fingerprints
-		GROUP BY visitor_id
+		GROUP BY visitor_id, ip
 		HAVING COUNT(DISTINCT user_id) > 1
 		ORDER BY user_count DESC, last_seen DESC
 		LIMIT ? OFFSET ?
@@ -202,6 +206,7 @@ func GetDuplicateVisitorIds(pageInfo *common.PageInfo) ([]map[string]interface{}
 
 	var results []struct {
 		VisitorId string    `json:"visitor_id"`
+		IP        string    `json:"ip"`
 		UserCount int       `json:"user_count"`
 		LastSeen  time.Time `json:"last_seen"`
 	}
@@ -216,6 +221,7 @@ func GetDuplicateVisitorIds(pageInfo *common.PageInfo) ([]map[string]interface{}
 	for _, r := range results {
 		mapResults = append(mapResults, map[string]interface{}{
 			"visitor_id": r.VisitorId,
+			"ip":         r.IP,
 			"user_count": r.UserCount,
 			"last_seen":  r.LastSeen,
 		})
