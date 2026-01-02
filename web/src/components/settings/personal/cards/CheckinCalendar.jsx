@@ -116,11 +116,11 @@ const CheckinCalendar = ({ t, status }) => {
   };
 
   useEffect(() => {
-    // 使用上游兼容的配置键
-    if (status?.['checkin_setting.enabled']) {
+    // 使用上游的配置键
+    if (status?.checkin_enabled) {
       fetchCheckinStatus(currentMonth);
     }
-  }, [status?.['checkin_setting.enabled'], currentMonth]);
+  }, [status?.checkin_enabled, currentMonth]);
 
   // 当签到状态加载完成后，根据是否已签到设置折叠状态
   useEffect(() => {
@@ -132,7 +132,7 @@ const CheckinCalendar = ({ t, status }) => {
   }, [checkinData.stats?.checked_in_today]);
 
   // 如果签到功能未启用，不显示组件
-  if (!status?.['checkin_setting.enabled']) {
+  if (!status?.checkin_enabled) {
     return null;
   }
 
