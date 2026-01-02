@@ -202,10 +202,6 @@ func InitDB() (err error) {
 			//_, _ = sqlDB.Exec("ALTER TABLE channels MODIFY model_mapping TEXT;") // TODO: delete this line when most users have upgraded
 		}
 		common.SysLog("database migration started")
-		// 签到表字段迁移（quota -> quota_awarded）
-		if err = MigrateCheckinTable(); err != nil {
-			common.SysError("checkin table migration failed: " + err.Error())
-		}
 		err = migrateDB()
 		return err
 	} else {

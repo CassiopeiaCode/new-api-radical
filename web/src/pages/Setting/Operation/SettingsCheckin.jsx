@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Button, Col, Form, Row, Spin } from '@douyinfe/semi-ui';
+import { Button, Col, Form, Row, Spin, Typography } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import {
   compareObjects,
@@ -33,14 +33,20 @@ export default function SettingsCheckin(props) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [inputs, setInputs] = useState({
-    'checkin_setting.checkin_enabled': false,
-    'checkin_setting.checkin_quota': '',
-    'checkin_setting.checkin_min_quota': '',
-    'checkin_setting.checkin_max_quota': '',
-    'checkin_setting.checkin_random_mode': false,
+    'checkin_setting.enabled': false,
+    'checkin_setting.min_quota': 1000,
+    'checkin_setting.max_quota': 10000,
+    'checkin_setting.fixed_quota': 5000,
+    'checkin_setting.random_mode': true,
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
+
+  function handleFieldChange(fieldName) {
+    return (value) => {
+      setInputs((inputs) => ({ ...inputs, [fieldName]: value }));
+    };
+  }
 
   function onSubmit() {
     const updateArray = compareObjects(inputs, inputsRow);
@@ -50,7 +56,7 @@ export default function SettingsCheckin(props) {
       if (typeof inputs[item.key] === 'boolean') {
         value = String(inputs[item.key]);
       } else {
-        value = inputs[item.key];
+        value = String(inputs[item.key]);
       }
       return API.put('/api/option/', {
         key: item.key,
@@ -89,6 +95,8 @@ export default function SettingsCheckin(props) {
     refForm.current.setValues(currentInputs);
   }, [props.options]);
 
+  const isRandomMode = inputs['checkin_setting.random_mode'];
+
   return (
     <>
       <Spin spinning={loading}>
@@ -98,88 +106,80 @@ export default function SettingsCheckin(props) {
           style={{ marginBottom: 15 }}
         >
           <Form.Section text={t('签到设置')}>
+            <Typography.Text
+              type='tertiary'
+              style={{ marginBottom: 16, display: 'block' }}
+            >
+              {t('签到功能允许用户每日签到获取额度奖励，支持固定额度和随机额度两种模式')}
+            </Typography.Text>
             <Row gutter={16}>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Form.Switch
+                  field={'checkin_setting.enabled'}
                   label={t('启用签到功能')}
-                  field={'checkin_setting.checkin_enabled'}
-                  extraText={t('开启后用户每天可签到一次领取额度')}
-                  onChange={(value) =>
-                    setInputs({
-                      ...inputs,
-                      'checkin_setting.checkin_enabled': value,
-                    })
-                  }
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={handleFieldChange('checkin_setting.enabled')}
                 />
               </Col>
-            </Row>
-            <Row gutter={16}>
-              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
-                <Form.InputNumber
-                  label={t('签到奖励额度')}
-                  field={'checkin_setting.checkin_quota'}
-                  step={100}
-                  min={0}
-                  suffix={'Token'}
-                  extraText={t('固定模式下每次签到奖励的额度') + (inputs['checkin_setting.checkin_quota'] ? ' ' + renderQuotaWithPrompt(parseInt(inputs['checkin_setting.checkin_quota']) || 0) : '')}
-                  placeholder={t('例如：1000')}
-                  onChange={(value) =>
-                    setInputs({
-                      ...inputs,
-                      'checkin_setting.checkin_quota': String(value),
-                    })
-                  }
-                />
-              </Col>
-            </Row>
-            <Row gutter={16}>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Form.Switch
-                  label={t('启用随机额度模式')}
-                  field={'checkin_setting.checkin_random_mode'}
-                  extraText={t('开启后签到奖励在最小和最大额度之间随机')}
-                  onChange={(value) =>
-                    setInputs({
-                      ...inputs,
-                      'checkin_setting.checkin_random_mode': value,
-                    })
-                  }
+                  field={'checkin_setting.random_mode'}
+                  label={t('随机额度模式')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  extraText={t('关闭后使用固定额度')}
+                  onChange={handleFieldChange('checkin_setting.random_mode')}
+                  disabled={!inputs['checkin_setting.enabled']}
                 />
               </Col>
             </Row>
             <Row gutter={16}>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Form.InputNumber
-                  label={t('最小签到额度')}
-                  field={'checkin_setting.checkin_min_quota'}
-                  step={100}
-                  min={0}
-                  suffix={'Token'}
-                  extraText={t('随机模式下的最小奖励额度') + (inputs['checkin_setting.checkin_min_quota'] ? ' ' + renderQuotaWithPrompt(parseInt(inputs['checkin_setting.checkin_min_quota']) || 0) : '')}
-                  placeholder={t('例如：500')}
-                  onChange={(value) =>
-                    setInputs({
-                      ...inputs,
-                      'checkin_setting.checkin_min_quota': String(value),
-                    })
+                  field={'checkin_setting.fixed_quota'}
+                  label={t('固定签到额度')}
+                  placeholder={t('固定模式下的签到额度')}
+                  extraText={
+                    !isRandomMode && inputs['checkin_setting.fixed_quota']
+                      ? renderQuotaWithPrompt(parseInt(inputs['checkin_setting.fixed_quota']) || 0)
+                      : t('固定模式下使用此额度')
                   }
+                  onChange={handleFieldChange('checkin_setting.fixed_quota')}
+                  min={0}
+                  disabled={!inputs['checkin_setting.enabled'] || isRandomMode}
                 />
               </Col>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Form.InputNumber
-                  label={t('最大签到额度')}
-                  field={'checkin_setting.checkin_max_quota'}
-                  step={100}
-                  min={0}
-                  suffix={'Token'}
-                  extraText={t('随机模式下的最大奖励额度') + (inputs['checkin_setting.checkin_max_quota'] ? ' ' + renderQuotaWithPrompt(parseInt(inputs['checkin_setting.checkin_max_quota']) || 0) : '')}
-                  placeholder={t('例如：2000')}
-                  onChange={(value) =>
-                    setInputs({
-                      ...inputs,
-                      'checkin_setting.checkin_max_quota': String(value),
-                    })
+                  field={'checkin_setting.min_quota'}
+                  label={t('签到最小额度')}
+                  placeholder={t('随机模式下的最小额度')}
+                  extraText={
+                    isRandomMode && inputs['checkin_setting.min_quota']
+                      ? renderQuotaWithPrompt(parseInt(inputs['checkin_setting.min_quota']) || 0)
+                      : t('随机模式下使用')
                   }
+                  onChange={handleFieldChange('checkin_setting.min_quota')}
+                  min={0}
+                  disabled={!inputs['checkin_setting.enabled'] || !isRandomMode}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.InputNumber
+                  field={'checkin_setting.max_quota'}
+                  label={t('签到最大额度')}
+                  placeholder={t('随机模式下的最大额度')}
+                  extraText={
+                    isRandomMode && inputs['checkin_setting.max_quota']
+                      ? renderQuotaWithPrompt(parseInt(inputs['checkin_setting.max_quota']) || 0)
+                      : t('随机模式下使用')
+                  }
+                  onChange={handleFieldChange('checkin_setting.max_quota')}
+                  min={0}
+                  disabled={!inputs['checkin_setting.enabled'] || !isRandomMode}
                 />
               </Col>
             </Row>

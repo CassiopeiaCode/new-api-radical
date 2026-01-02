@@ -39,11 +39,11 @@ const OperationSetting = () => {
     'quota_setting.enable_free_model_pre_consume': true,
 
     /* 签到设置 */
-    'checkin_setting.checkin_enabled': false,
-    'checkin_setting.checkin_quota': 0,
-    'checkin_setting.checkin_min_quota': 0,
-    'checkin_setting.checkin_max_quota': 0,
-    'checkin_setting.checkin_random_mode': false,
+    'checkin_setting.enabled': false,
+    'checkin_setting.min_quota': 1000,
+    'checkin_setting.max_quota': 10000,
+    'checkin_setting.fixed_quota': 5000,
+    'checkin_setting.random_mode': true,
 
     /* 通用设置 */
     TopUpLink: '',

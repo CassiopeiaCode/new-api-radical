@@ -50,9 +50,11 @@ func HasCheckedInToday(userId int) (bool, error) {
 }
 
 // UserCheckin 执行用户签到
+// MySQL 和 PostgreSQL 使用事务保证原子性
+// SQLite 不支持嵌套事务，使用顺序操作 + 手动回滚
 func UserCheckin(userId int) (*Checkin, error) {
 	setting := operation_setting.GetCheckinSetting()
-	if !setting.CheckinEnabled {
+	if !setting.Enabled {
 		return nil, errors.New("签到功能未启用")
 	}
 
@@ -67,16 +69,15 @@ func UserCheckin(userId int) (*Checkin, error) {
 
 	// 计算额度奖励：支持固定模式和随机模式
 	var quotaAwarded int
-	if setting.CheckinRandomMode {
-		// 随机模式
-		if setting.CheckinMaxQuota > setting.CheckinMinQuota {
-			quotaAwarded = setting.CheckinMinQuota + rand.Intn(setting.CheckinMaxQuota-setting.CheckinMinQuota+1)
-		} else {
-			quotaAwarded = setting.CheckinMinQuota
+	if setting.RandomMode {
+		// 随机模式（上游默认行为）
+		quotaAwarded = setting.MinQuota
+		if setting.MaxQuota > setting.MinQuota {
+			quotaAwarded = setting.MinQuota + rand.Intn(setting.MaxQuota-setting.MinQuota+1)
 		}
 	} else {
-		// 固定模式
-		quotaAwarded = setting.CheckinQuota
+		// 固定模式（扩展功能）
+		quotaAwarded = setting.FixedQuota
 	}
 
 	today := time.Now().Format("2006-01-02")
@@ -159,68 +160,4 @@ func GetUserCheckinStats(userId int, month string) (map[string]interface{}, erro
 		"checked_in_today": hasCheckedToday,
 		"records":          checkinRecords,
 	}, nil
-}
-
-// MigrateCheckinTable 迁移签到表字段
-func MigrateCheckinTable() error {
-	// 先检查表是否存在，直接用表名
-	if !DB.Migrator().HasTable("checkins") {
-		// 表不存在，跳过迁移，让 AutoMigrate 创建新表
-		return nil
-	}
-
-	// 直接用 SQL 检查列是否存在，避免依赖结构体
-	var hasOldQuota, hasNewQuota bool
-
-	if common.UsingSQLite {
-		// SQLite: 查询 pragma
-		var columns []struct {
-			Name string `gorm:"column:name"`
-		}
-		DB.Raw("PRAGMA table_info(checkins)").Scan(&columns)
-		for _, col := range columns {
-			if col.Name == "quota" {
-				hasOldQuota = true
-			}
-			if col.Name == "quota_awarded" {
-				hasNewQuota = true
-			}
-		}
-	} else if common.UsingMySQL {
-		// MySQL: 查询 information_schema
-		var count int64
-		DB.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'checkins' AND column_name = 'quota'").Scan(&count)
-		hasOldQuota = count > 0
-		DB.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'checkins' AND column_name = 'quota_awarded'").Scan(&count)
-		hasNewQuota = count > 0
-	} else {
-		// PostgreSQL: 查询 information_schema
-		var count int64
-		DB.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'checkins' AND column_name = 'quota'").Scan(&count)
-		hasOldQuota = count > 0
-		DB.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'checkins' AND column_name = 'quota_awarded'").Scan(&count)
-		hasNewQuota = count > 0
-	}
-
-	if hasOldQuota && !hasNewQuota {
-		common.SysLog("migrating checkin table: quota -> quota_awarded")
-		if common.UsingSQLite {
-			// SQLite 不支持直接重命名列，添加新列并复制数据
-			if err := DB.Exec("ALTER TABLE checkins ADD COLUMN quota_awarded INTEGER NOT NULL DEFAULT 0").Error; err != nil {
-				return err
-			}
-			if err := DB.Exec("UPDATE checkins SET quota_awarded = quota").Error; err != nil {
-				return err
-			}
-			// SQLite 3.35+ 支持 DROP COLUMN，但为了兼容性不删除旧列
-		} else {
-			// MySQL / PostgreSQL 直接重命名
-			if err := DB.Exec("ALTER TABLE checkins RENAME COLUMN quota TO quota_awarded").Error; err != nil {
-				return err
-			}
-		}
-		common.SysLog("checkin table migration completed")
-	}
-
-	return nil
 }

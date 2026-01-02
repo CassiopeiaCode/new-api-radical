@@ -110,10 +110,11 @@ const CheckinCalendar = ({ t, status }) => {
   };
 
   useEffect(() => {
-    if (status?.['checkin_setting.checkin_enabled']) {
+    // 使用上游兼容的配置键
+    if (status?.['checkin_setting.enabled']) {
       fetchCheckinStatus(currentMonth);
     }
-  }, [status?.['checkin_setting.checkin_enabled'], currentMonth]);
+  }, [status?.['checkin_setting.enabled'], currentMonth]);
 
   useEffect(() => {
     if (checkinData.stats?.checked_in_today) {
@@ -123,7 +124,8 @@ const CheckinCalendar = ({ t, status }) => {
     }
   }, [checkinData.stats?.checked_in_today]);
 
-  if (!status?.['checkin_setting.checkin_enabled']) {
+  // 使用上游兼容的配置键
+  if (!status?.['checkin_setting.enabled']) {
     return null;
   }
 

@@ -15,7 +15,7 @@ import (
 // GetCheckinStatus 获取用户签到状态和历史记录
 func GetCheckinStatus(c *gin.Context) {
 	setting := operation_setting.GetCheckinSetting()
-	if !setting.CheckinEnabled {
+	if !setting.Enabled {
 		common.ApiErrorMsg(c, "签到功能未启用")
 		return
 	}
@@ -34,10 +34,12 @@ func GetCheckinStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"enabled":   setting.CheckinEnabled,
-			"min_quota": setting.CheckinMinQuota,
-			"max_quota": setting.CheckinMaxQuota,
-			"stats":     stats,
+			"enabled":     setting.Enabled,
+			"min_quota":   setting.MinQuota,
+			"max_quota":   setting.MaxQuota,
+			"fixed_quota": setting.FixedQuota,
+			"random_mode": setting.RandomMode,
+			"stats":       stats,
 		},
 	})
 }
@@ -45,7 +47,7 @@ func GetCheckinStatus(c *gin.Context) {
 // DoCheckin 执行用户签到
 func DoCheckin(c *gin.Context) {
 	setting := operation_setting.GetCheckinSetting()
-	if !setting.CheckinEnabled {
+	if !setting.Enabled {
 		common.ApiErrorMsg(c, "签到功能未启用")
 		return
 	}
