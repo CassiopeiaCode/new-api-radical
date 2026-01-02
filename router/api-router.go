@@ -101,7 +101,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/2fa/disable", controller.Disable2FA)
 				selfRoute.POST("/2fa/backup_codes", controller.RegenerateBackupCodes)
 
-				// 签到 routes
+				// Check-in routes
 				selfRoute.GET("/checkin", controller.GetCheckinStatus)
 				selfRoute.POST("/checkin", controller.DoCheckin)
 			}

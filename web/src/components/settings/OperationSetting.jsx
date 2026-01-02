@@ -78,7 +78,10 @@ const OperationSetting = () => {
     AutomaticEnableChannelEnabled: false,
     AutomaticDisableKeywords: '',
     'monitor_setting.auto_test_channel_enabled': false,
-    'monitor_setting.auto_test_channel_minutes': 10,
+    'monitor_setting.auto_test_channel_minutes': 10 /* 签到设置 */,
+    'checkin_setting.enabled': false,
+    'checkin_setting.min_quota': 1000,
+    'checkin_setting.max_quota': 10000,
   });
 
   let [loading, setLoading] = useState(false);

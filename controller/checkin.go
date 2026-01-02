@@ -20,6 +20,7 @@ func GetCheckinStatus(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
+	// 获取月份参数，默认为当前月份
 	month := c.DefaultQuery("month", time.Now().Format("2006-01"))
 
 	stats, err := model.GetUserCheckinStats(userId, month)

@@ -53,8 +53,10 @@ const CheckinCalendar = ({ t, status }) => {
   const [currentMonth, setCurrentMonth] = useState(
     new Date().toISOString().slice(0, 7),
   );
+  // 折叠状态：如果已签到则默认折叠
   const [isCollapsed, setIsCollapsed] = useState(true);
 
+  // 创建日期到额度的映射，方便快速查找
   const checkinRecordsMap = useMemo(() => {
     const map = {};
     const records = checkinData.stats?.records || [];
@@ -64,6 +66,7 @@ const CheckinCalendar = ({ t, status }) => {
     return map;
   }, [checkinData.stats?.records]);
 
+  // 计算本月获得的额度
   const monthlyQuota = useMemo(() => {
     const records = checkinData.stats?.records || [];
     return records.reduce(
@@ -72,6 +75,7 @@ const CheckinCalendar = ({ t, status }) => {
     );
   }, [checkinData.stats?.records]);
 
+  // 获取签到状态
   const fetchCheckinStatus = async (month) => {
     setLoading(true);
     try {
@@ -89,6 +93,7 @@ const CheckinCalendar = ({ t, status }) => {
     }
   };
 
+  // 执行签到
   const doCheckin = async () => {
     setCheckinLoading(true);
     try {
@@ -98,6 +103,7 @@ const CheckinCalendar = ({ t, status }) => {
         showSuccess(
           t('签到成功！获得') + ' ' + renderQuota(data.quota_awarded),
         );
+        // 刷新签到状态
         fetchCheckinStatus(currentMonth);
       } else {
         showError(message || t('签到失败'));
@@ -116,6 +122,7 @@ const CheckinCalendar = ({ t, status }) => {
     }
   }, [status?.['checkin_setting.enabled'], currentMonth]);
 
+  // 当签到状态加载完成后，根据是否已签到设置折叠状态
   useEffect(() => {
     if (checkinData.stats?.checked_in_today) {
       setIsCollapsed(true);
@@ -124,20 +131,22 @@ const CheckinCalendar = ({ t, status }) => {
     }
   }, [checkinData.stats?.checked_in_today]);
 
-  // 使用上游兼容的配置键
+  // 如果签到功能未启用，不显示组件
   if (!status?.['checkin_setting.enabled']) {
     return null;
   }
 
+  // 日期渲染函数 - 显示签到状态和获得的额度
   const dateRender = (dateString) => {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) {
       return null;
     }
+    // 使用本地时间格式化，避免时区问题
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
-    const formattedDate = `${year}-${month}-${day}`;
+    const formattedDate = `${year}-${month}-${day}`; // YYYY-MM-DD
     const quotaAwarded = checkinRecordsMap[formattedDate];
     const isCheckedIn = quotaAwarded !== undefined;
 
@@ -161,6 +170,7 @@ const CheckinCalendar = ({ t, status }) => {
     return null;
   };
 
+  // 处理月份变化
   const handleMonthChange = (date) => {
     const month = date.toISOString().slice(0, 7);
     setCurrentMonth(month);
@@ -168,6 +178,7 @@ const CheckinCalendar = ({ t, status }) => {
 
   return (
     <Card className='!rounded-2xl'>
+      {/* 卡片头部 */}
       <div className='flex items-center justify-between'>
         <div
           className='flex items-center flex-1 cursor-pointer'
@@ -211,7 +222,9 @@ const CheckinCalendar = ({ t, status }) => {
         </Button>
       </div>
 
+      {/* 可折叠内容 */}
       <Collapsible isOpen={!isCollapsed} keepDOM>
+        {/* 签到统计 */}
         <div className='grid grid-cols-3 gap-3 mb-4 mt-4'>
           <div className='text-center p-2.5 bg-slate-50 dark:bg-slate-800 rounded-lg'>
             <div className='text-xl font-bold text-green-600'>
@@ -233,6 +246,7 @@ const CheckinCalendar = ({ t, status }) => {
           </div>
         </div>
 
+        {/* 签到日历 */}
         <Spin spinning={loading}>
           <div className='border rounded-lg overflow-hidden checkin-calendar'>
             <style>{`
@@ -285,11 +299,12 @@ const CheckinCalendar = ({ t, status }) => {
             <Calendar
               mode='month'
               onChange={handleMonthChange}
-              dateGridRender={(dateString) => dateRender(dateString)}
+              dateGridRender={(dateString, date) => dateRender(dateString)}
             />
           </div>
         </Spin>
 
+        {/* 签到说明 */}
         <div className='mt-3 p-2.5 bg-slate-50 dark:bg-slate-800 rounded-lg'>
           <Typography.Text type='tertiary' className='text-xs'>
             <ul className='list-disc list-inside space-y-0.5'>

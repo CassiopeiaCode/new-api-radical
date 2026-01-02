@@ -90,46 +90,66 @@ func UserCheckin(userId int) (*Checkin, error) {
 
 	// 根据数据库类型选择不同的策略
 	if common.UsingSQLite {
+		// SQLite 不支持嵌套事务，使用顺序操作 + 手动回滚
 		return userCheckinWithoutTransaction(checkin, userId, quotaAwarded)
 	}
+
+	// MySQL 和 PostgreSQL 支持事务，使用事务保证原子性
 	return userCheckinWithTransaction(checkin, userId, quotaAwarded)
 }
 
 // userCheckinWithTransaction 使用事务执行签到（适用于 MySQL 和 PostgreSQL）
 func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) (*Checkin, error) {
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		// 步骤1: 创建签到记录
+		// 数据库有唯一约束 (user_id, checkin_date)，可以防止并发重复签到
 		if err := tx.Create(checkin).Error; err != nil {
 			return errors.New("签到失败，请稍后重试")
 		}
+
+		// 步骤2: 在事务中增加用户额度
 		if err := tx.Model(&User{}).Where("id = ?", userId).
 			Update("quota", gorm.Expr("quota + ?", quotaAwarded)).Error; err != nil {
 			return errors.New("签到失败：更新额度出错")
 		}
+
 		return nil
 	})
+
 	if err != nil {
 		return nil, err
 	}
+
+	// 事务成功后，异步更新缓存
 	go func() {
 		_ = cacheIncrUserQuota(userId, int64(quotaAwarded))
 	}()
+
 	return checkin, nil
 }
 
 // userCheckinWithoutTransaction 不使用事务执行签到（适用于 SQLite）
 func userCheckinWithoutTransaction(checkin *Checkin, userId int, quotaAwarded int) (*Checkin, error) {
+	// 步骤1: 创建签到记录
+	// 数据库有唯一约束 (user_id, checkin_date)，可以防止并发重复签到
 	if err := DB.Create(checkin).Error; err != nil {
 		return nil, errors.New("签到失败，请稍后重试")
 	}
+
+	// 步骤2: 增加用户额度
+	// 使用 db=true 强制直接写入数据库，不使用批量更新
 	if err := IncreaseUserQuota(userId, quotaAwarded, true); err != nil {
+		// 如果增加额度失败，需要回滚签到记录
 		DB.Delete(checkin)
 		return nil, errors.New("签到失败：更新额度出错")
 	}
+
 	return checkin, nil
 }
 
 // GetUserCheckinStats 获取用户签到统计信息
 func GetUserCheckinStats(userId int, month string) (map[string]interface{}, error) {
+	// 获取指定月份的所有签到记录
 	startDate := month + "-01"
 	endDate := month + "-31"
 
@@ -138,6 +158,7 @@ func GetUserCheckinStats(userId int, month string) (map[string]interface{}, erro
 		return nil, err
 	}
 
+	// 转换为不包含敏感字段的记录
 	checkinRecords := make([]CheckinRecord, len(records))
 	for i, r := range records {
 		checkinRecords[i] = CheckinRecord{
@@ -146,18 +167,20 @@ func GetUserCheckinStats(userId int, month string) (map[string]interface{}, erro
 		}
 	}
 
+	// 检查今天是否已签到
 	hasCheckedToday, _ := HasCheckedInToday(userId)
 
+	// 获取用户所有时间的签到统计
 	var totalCheckins int64
 	var totalQuota int64
 	DB.Model(&Checkin{}).Where("user_id = ?", userId).Count(&totalCheckins)
 	DB.Model(&Checkin{}).Where("user_id = ?", userId).Select("COALESCE(SUM(quota_awarded), 0)").Scan(&totalQuota)
 
 	return map[string]interface{}{
-		"total_quota":      totalQuota,
-		"total_checkins":   totalCheckins,
-		"checkin_count":    len(records),
-		"checked_in_today": hasCheckedToday,
-		"records":          checkinRecords,
+		"total_quota":      totalQuota,      // 所有时间累计获得的额度
+		"total_checkins":   totalCheckins,   // 所有时间累计签到次数
+		"checkin_count":    len(records),    // 本月签到次数
+		"checked_in_today": hasCheckedToday, // 今天是否已签到
+		"records":          checkinRecords,  // 本月签到记录详情（不含id和user_id）
 	}, nil
 }
