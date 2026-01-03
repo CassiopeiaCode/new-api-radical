@@ -13,8 +13,11 @@ package model
 import (
 	"bytes"
 	"crypto/sha256"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -427,18 +430,27 @@ func RecordActiveTaskSlot(c interface{}, userID int, username string, modelName 
 		return
 	}
 
-	gc, ok := c.(interface {
+	type ginContext interface {
 		Get(string) (interface{}, bool)
-		GetInt(string) int
-	})
+		Request() interface{}
+	}
+
+	gc, ok := c.(*gin.Context)
 	if !ok {
 		return
 	}
 
+	// 通过请求路径判断是否为 chat 类请求
+	requestPath := gc.Request.URL.Path
+
 	// 只对 chat 类请求统计活跃任务
-	// 1=ChatCompletions, 2=Completions, 41=Responses, 43=Gemini
-	relayMode := gc.GetInt("relay_mode")
-	if relayMode != 1 && relayMode != 2 && relayMode != 41 && relayMode != 43 {
+	isChatRequest := strings.Contains(requestPath, "/chat/completions") ||
+		strings.Contains(requestPath, "/v1/completions") ||
+		strings.Contains(requestPath, "/v1/responses") ||
+		strings.Contains(requestPath, "/v1/messages") ||
+		(strings.Contains(requestPath, "/v1beta/models/") && strings.Contains(requestPath, "generateContent"))
+
+	if !isChatRequest {
 		return
 	}
 
