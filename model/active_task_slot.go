@@ -13,7 +13,6 @@ package model
 import (
 	"bytes"
 	"crypto/sha256"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -421,24 +420,37 @@ func GetHighActiveTaskHistory(startTime, endTime int64, userId int, limit int) (
 }
 
 // RecordActiveTaskSlot 记录活跃任务槽（从请求上下文中提取数据）
-// 使用 用户ID + 模型名 + 请求体哈希 作为任务标识
+// 使用请求体内容计算多级哈希，识别同一对话的连续请求
+// 只对 chat 类请求统计，embedding 等不统计
 func RecordActiveTaskSlot(c interface{}, userID int, username string, modelName string) {
 	if userID <= 0 {
 		return
 	}
 
-	// 构建用于哈希的数据
-	// 使用模型名 + 请求ID（如果有）作为任务标识
+	gc, ok := c.(interface {
+		Get(string) (interface{}, bool)
+		GetInt(string) int
+	})
+	if !ok {
+		return
+	}
+
+	// 只对 chat 类请求统计活跃任务
+	// 1=ChatCompletions, 2=Completions, 41=Responses, 43=Gemini
+	relayMode := gc.GetInt("relay_mode")
+	if relayMode != 1 && relayMode != 2 && relayMode != 41 && relayMode != 43 {
+		return
+	}
+
 	var data string
-	if gc, ok := c.(interface{ GetString(string) string }); ok {
-		requestID := gc.GetString("X-Request-Id")
-		if requestID != "" {
-			data = modelName + ":" + requestID
-		} else {
-			data = modelName + ":" + fmt.Sprintf("%d:%d", userID, time.Now().UnixNano())
+	if body, exists := gc.Get("key_request_body"); exists {
+		if bodyBytes, ok := body.([]byte); ok && len(bodyBytes) > 0 {
+			data = string(bodyBytes)
 		}
-	} else {
-		data = modelName + ":" + fmt.Sprintf("%d:%d", userID, time.Now().UnixNano())
+	}
+
+	if data == "" {
+		data = modelName
 	}
 
 	manager := GetActiveTaskSlotManager()
