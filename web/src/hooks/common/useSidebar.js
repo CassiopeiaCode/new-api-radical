@@ -62,7 +62,6 @@ export const useSidebar = () => {
       channel: true,
       models: true,
       model_health: true,
-      user_hourly_calls_rank: true,
       recent_calls: true,
       deployment: true,
       redemption: true,

@@ -272,12 +272,6 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.DELETE("/:id", controller.DeleteModelMeta)
 		}
 
-		userRankRoute := apiRouter.Group("/user_rank")
-		userRankRoute.Use(middleware.AdminAuth())
-		{
-			userRankRoute.GET("/hourly_calls", controller.GetUserHourlyCallsRankAPI)
-		}
-
 		modelHealthRoute := apiRouter.Group("/model_health")
 		modelHealthRoute.Use(middleware.AdminAuth())
 		{

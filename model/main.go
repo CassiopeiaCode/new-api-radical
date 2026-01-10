@@ -268,7 +268,6 @@ func migrateDB() error {
 		&TwoFA{},
 		&TwoFABackupCode{},
 		&ModelHealthSlice5m{},
-		&UserCallHourly{},
 		&Checkin{},
 		&UserFingerprint{},
 		&HighActiveTaskRecord{},

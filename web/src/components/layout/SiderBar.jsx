@@ -43,7 +43,6 @@ const routerMap = {
   about: '/about',
   detail: '/console',
   model_health: '/console/model-health-hourly',
-  user_hourly_calls_rank: '/console/user-hourly-calls-rank',
   active_task_rank: '/console/active-task-rank',
   recent_calls: '/console/recent-calls',
   pricing: '/pricing',
@@ -167,12 +166,6 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('模型健康度'),
         itemKey: 'model_health',
         to: '/console/model-health-hourly',
-        className: isAdmin() ? '' : 'tableHiddle',
-      },
-      {
-        text: t('调用排行'),
-        itemKey: 'user_hourly_calls_rank',
-        to: '/console/user-hourly-calls-rank',
         className: isAdmin() ? '' : 'tableHiddle',
       },
       {

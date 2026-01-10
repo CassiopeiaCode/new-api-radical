@@ -54,7 +54,6 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ModelHealthHourly = lazy(() => import('./pages/ModelHealthHourly'));
 const ModelHealthPublic = lazy(() => import('./pages/ModelHealthPublic'));
 const RecentCalls = lazy(() => import('./pages/RecentCalls'));
-const UserHourlyCallsRank = lazy(() => import('./pages/UserHourlyCallsRank'));
 const ActiveTaskRank = lazy(() => import('./pages/ActiveTaskRank'));
 const About = lazy(() => import('./pages/About'));
 const UserAgreement = lazy(() => import('./pages/UserAgreement'));
@@ -305,17 +304,6 @@ function App() {
             <AdminRoute>
               <Suspense fallback={<Loading></Loading>} key={location.pathname}>
                 <ModelHealthHourly />
-              </Suspense>
-            </AdminRoute>
-          }
-        />
-
-        <Route
-          path='/console/user-hourly-calls-rank'
-          element={
-            <AdminRoute>
-              <Suspense fallback={<Loading></Loading>} key={location.pathname}>
-                <UserHourlyCallsRank />
               </Suspense>
             </AdminRoute>
           }

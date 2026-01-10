@@ -136,17 +136,6 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		IsError:   true,
 	})
 
-	// 需求口径：总调用次数默认包含失败（只要发生调用就算）。
-	// 但并非所有失败都会落 error log（受 types.IsRecordErrorLog 等影响），因此这里是 best-effort。
-	if common.HourlyCallRankCountFailedEnabled {
-		RecordUserCallHourlyEventAsync(c, &UserCallHourlyEvent{
-			UserId:    userId,
-			Username:  username,
-			CreatedAt: log.CreatedAt,
-			IsError:   true,
-		})
-	}
-
 	// 记录活跃任务槽
 	RecordActiveTaskSlot(c, userId, username, modelName)
 }
@@ -220,13 +209,6 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		ResponseBytes:    responseBytes,
 		CompletionTokens: params.CompletionTokens,
 		AssistantChars:   assistantChars,
-	})
-
-	RecordUserCallHourlyEventAsync(c, &UserCallHourlyEvent{
-		UserId:    userId,
-		Username:  username,
-		CreatedAt: log.CreatedAt,
-		IsError:   false,
 	})
 
 	// 记录活跃任务槽
