@@ -96,7 +96,12 @@ func SearchFingerprints(c *gin.Context) {
 	common.ApiSuccess(c, pageInfo)
 }
 
-// FindUsersByVisitorId 查找相同visitor id的用户（管理员）
+/*
+FindUsersByVisitorId 查找相同 visitor_id 的用户（管理员）
+
+- visitor_id 必填
+- ip 可选：用于进一步过滤 (visitor_id, ip) 组合
+*/
 func FindUsersByVisitorId(c *gin.Context) {
 	visitorId := c.Query("visitor_id")
 	if visitorId == "" {
@@ -111,6 +116,29 @@ func FindUsersByVisitorId(c *gin.Context) {
 
 	pageInfo := common.GetPageQuery(c)
 	users, total, err := model.FindUsersByVisitorId(visitorId, ip, pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(users)
+	common.ApiSuccess(c, pageInfo)
+}
+
+// FindUsersByIP 查找相同 IP 的用户（管理员）
+func FindUsersByIP(c *gin.Context) {
+	ip := c.Query("ip")
+	if ip == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "ip 不能为空",
+		})
+		return
+	}
+
+	pageInfo := common.GetPageQuery(c)
+	users, total, err := model.FindUsersByIP(ip, pageInfo)
 	if err != nil {
 		common.ApiError(c, err)
 		return

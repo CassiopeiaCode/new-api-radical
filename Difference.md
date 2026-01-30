@@ -195,10 +195,10 @@
   - 无域名信息兜底：`state` 不带 `|` 时，退回“本域名”直接跳 `/oauth/linuxdo`（见 [`redirectUrl = \`/oauth/linuxdo?code=${code}&state=${finalState}\``](web/public/oauth-redirect.html:171)）。
   - 体验：延迟 800ms 让用户看到“授权成功/目标域名”（见 [`setTimeout(..., 800)`](web/public/oauth-redirect.html:192)）。
  
-8. 【已实现】接入 FingerprintJS：记录用户最近 5 次去重 visitor id + 管理员查询同 visitor id 用户（工作台面板“关联追踪”）
- 
-- 原始需求（保留）：实现接入 fingerprintjs/fingerprintjs 库，记录用户的历史5次visitor id（去重后的5次），并实现管理员查询相同visitor id的用户，也就是说创建一个管理员可见的在工作台的面板，面板名称4个字
- 
+8. 【已实现】接入 FingerprintJS：记录用户最近 5 次去重 visitor id + ip（按 ip+visitor_id 去重）+ 管理员查询同 visitor id 用户（工作台面板“关联追踪”）
+  
+- 原始需求（保留）：实现接入 fingerprintjs/fingerprintjs 库，记录用户的历史5次visitor id + ip（按 ip+visitor_id 去重后的5次），并实现管理员查询相同visitor id的用户，也就是说创建一个管理员可见的在工作台的面板，面板名称4个字
+  
 - 前端：采集 visitor id + 1 小时节流上报
   - 依赖：前端包已引入 `@fingerprintjs/fingerprintjs`（动态加载见 [`loadFingerprintJS()`](web/src/hooks/common/useFingerprint.js:31)）。
   - 上报策略：默认 1 小时一次（[`REPORT_INTERVAL`](web/src/hooks/common/useFingerprint.js:24)），`localStorage` 记录上次上报时间（[`LAST_REPORT_KEY`](web/src/hooks/common/useFingerprint.js:27)）。
@@ -206,11 +206,16 @@
   - 缓存 visitor id：写入 `localStorage`（[`VISITOR_ID_KEY`](web/src/hooks/common/useFingerprint.js:28)；写入见 [`localStorage.setItem(VISITOR_ID_KEY, visitorId)`](web/src/hooks/common/useFingerprint.js:84)）。
   - Hook 用法：登录后触发一次非强制采集（见 [`useFingerprint(isLoggedIn)`](web/src/hooks/common/useFingerprint.js:102)）。
  
-- 后端：记录到表 `user_fingerprints`，同用户最多保留 5 个不同 visitor id（去重）
+- 后端：记录到表 `user_fingerprints`，同用户最多保留 5 个不同 `ip + visitor_id` 组合（按 ip+visitor_id 去重）
   - 写入入口：[`controller.RecordFingerprint()`](controller/fingerprint.go:16) 读取 `visitor_id`（[`RecordFingerprintRequest`](controller/fingerprint.go:11)），并取 `User-Agent` 与 [`c.ClientIP()`](controller/fingerprint.go:35) 一起入库。
   - 数据表：[`model.UserFingerprint`](model/user_fingerprint.go:10) 映射表名 `user_fingerprints`（[`TableName()`](model/user_fingerprint.go:20)）。
-  - 去重逻辑：若同 `(user_id, visitor_id)` 已存在则更新 `UserAgent/IP/UpdatedAt`（见 [`DB.Where(...).First(&existing)`](model/user_fingerprint.go:28) + [`DB.Save(&existing)`](model/user_fingerprint.go:34)）。
-  - 保留 5 条：超过 5 个 visitor id 时，删除第 6 条之后的旧记录（见 [`if count > 5`](model/user_fingerprint.go:54) + [`Offset(5).Find(&oldRecords)`](model/user_fingerprint.go:56) + [`DB.Delete(&UserFingerprint{}, ids)`](model/user_fingerprint.go:63)）。
+  - 去重逻辑：后端使用 upsert，按 `(user_id, visitor_id, ip)` 组合去重；命中则更新 `user_agent/updated_at`（实现见 [`model.RecordFingerprint()`](model/user_fingerprint.go:25)）。
+  - 保留 5 条：超过 5 个 `ip + visitor_id` 组合记录时，删除第 6 条之后的旧记录（见 [`model.RecordFingerprint()`](model/user_fingerprint.go:25) 的 `Offset(5)` 清理逻辑）。
+  - MySQL 迁移（必须）：为保证并发下去重正确，需要添加复合唯一索引（否则可能产生重复行，导致“保留 5 条”失真）：
+    ```sql
+    ALTER TABLE user_fingerprints
+      ADD UNIQUE KEY ux_user_fingerprints_user_visitor_ip (user_id, visitor_id, ip);
+    ```
  
 - 管理员查询：重复指纹列表 + 点进查看关联用户
   - 路由挂载（管理员）：在 [`router.SetApiRouter()`](router/api-router.go:11) 的 admin fingerprint group 下提供：

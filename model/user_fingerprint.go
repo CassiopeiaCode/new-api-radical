@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm/clause"
 )
 
 // UserFingerprint 用户设备指纹记录
@@ -21,42 +22,42 @@ func (UserFingerprint) TableName() string {
 	return "user_fingerprints"
 }
 
-// RecordFingerprint 记录用户指纹，保留最近5个不同的visitor id
+// RecordFingerprint 记录用户指纹，按 (user_id, visitor_id, ip) 组合去重，保留最近5条组合记录
 func RecordFingerprint(userId int, visitorId string, userAgent string, ip string) error {
-	// 检查该用户是否已有此visitor id
-	var existing UserFingerprint
-	err := DB.Where("user_id = ? AND visitor_id = ?", userId, visitorId).First(&existing).Error
+	now := time.Now()
 
-	if err == nil {
-		// 已存在，更新时间和IP
-		existing.UserAgent = userAgent
-		existing.IP = ip
-		return DB.Save(&existing).Error
-	}
-
-	// 不存在，创建新记录
 	fingerprint := UserFingerprint{
 		UserId:    userId,
 		VisitorId: visitorId,
 		UserAgent: userAgent,
 		IP:        ip,
+		UpdatedAt: now,
 	}
 
-	if err := DB.Create(&fingerprint).Error; err != nil {
+	// 依赖 DB 侧唯一约束：UNIQUE(user_id, visitor_id, ip)
+	// 命中则更新 user_agent/updated_at；created_at 保持首次插入时间
+	if err := DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "user_id"},
+			{Name: "visitor_id"},
+			{Name: "ip"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{"user_agent", "updated_at"}),
+	}).Create(&fingerprint).Error; err != nil {
 		return err
 	}
 
-	// 统计该用户不同的visitor id数量
+	// 统计该用户组合记录数量（唯一约束存在时，行数即组合数）
 	var count int64
 	DB.Model(&UserFingerprint{}).Where("user_id = ?", userId).Count(&count)
 
-	// 如果超过5个，删除最旧的记录
+	// 如果超过5条，删除最旧的记录
 	if count > 5 {
 		var oldRecords []UserFingerprint
-		DB.Where("user_id = ?", userId).Order("updated_at desc").Offset(5).Find(&oldRecords)
+		DB.Select("id").Where("user_id = ?", userId).Order("updated_at desc, id desc").Offset(5).Find(&oldRecords)
 
 		if len(oldRecords) > 0 {
-			var ids []int
+			ids := make([]int, 0, len(oldRecords))
 			for _, r := range oldRecords {
 				ids = append(ids, r.Id)
 			}
@@ -70,7 +71,7 @@ func RecordFingerprint(userId int, visitorId string, userAgent string, ip string
 // GetUserFingerprints 获取用户的指纹历史
 func GetUserFingerprints(userId int) ([]UserFingerprint, error) {
 	var fingerprints []UserFingerprint
-	err := DB.Where("user_id = ?", userId).Order("created_at desc").Limit(5).Find(&fingerprints).Error
+	err := DB.Where("user_id = ?", userId).Order("updated_at desc, id desc").Limit(5).Find(&fingerprints).Error
 	return fingerprints, err
 }
 
@@ -90,7 +91,6 @@ type UserWithFingerprint struct {
 	IP           string `json:"ip"`
 }
 
-// FindUsersByVisitorId 查找具有相同visitor id的用户，可选ip参数进一步过滤
 func FindUsersByVisitorId(visitorId string, ip string, pageInfo *common.PageInfo) ([]UserWithFingerprint, int64, error) {
 	var results []UserWithFingerprint
 	var total int64
@@ -112,14 +112,14 @@ func FindUsersByVisitorId(visitorId string, ip string, pageInfo *common.PageInfo
 
 	// 查询用户信息，使用子查询确保每个用户只返回一条记录
 	query := `
-		SELECT u.id, u.username, u.display_name, u.email, u.status, u.role, 
+		SELECT u.id, u.username, u.display_name, u.email, u.status, u.role,
 			   u.quota, u.used_quota, u.request_count,
 			   f.visitor_id, f.created_at as record_time, f.ip
 		FROM user_fingerprints f
 		JOIN users u ON f.user_id = u.id
 		WHERE ` + baseWhere + `
 		AND f.id IN (
-			SELECT MAX(f2.id) FROM user_fingerprints f2 
+			SELECT MAX(f2.id) FROM user_fingerprints f2
 			WHERE f2.visitor_id = ?` + func() string {
 		if ip != "" {
 			return " AND f2.ip = ?"
@@ -140,6 +140,41 @@ func FindUsersByVisitorId(visitorId string, ip string, pageInfo *common.PageInfo
 	}
 	queryArgs = append(queryArgs, pageInfo.GetPageSize(), pageInfo.GetStartIdx())
 
+	err = DB.Raw(query, queryArgs...).Scan(&results).Error
+	return results, total, err
+}
+
+// FindUsersByIP 查找具有相同IP的用户（管理员）
+func FindUsersByIP(ip string, pageInfo *common.PageInfo) ([]UserWithFingerprint, int64, error) {
+	var results []UserWithFingerprint
+	var total int64
+
+	baseWhere := "f.ip = ?"
+	args := []interface{}{ip}
+
+	countQuery := `SELECT COUNT(DISTINCT f.user_id) FROM user_fingerprints f WHERE ` + baseWhere
+	err := DB.Raw(countQuery, args...).Scan(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT u.id, u.username, u.display_name, u.email, u.status, u.role,
+			   u.quota, u.used_quota, u.request_count,
+			   f.visitor_id, f.created_at as record_time, f.ip
+		FROM user_fingerprints f
+		JOIN users u ON f.user_id = u.id
+		WHERE ` + baseWhere + `
+		AND f.id IN (
+			SELECT MAX(f2.id) FROM user_fingerprints f2
+			WHERE f2.ip = ?
+			GROUP BY f2.user_id
+		)
+		ORDER BY f.created_at DESC
+		LIMIT ? OFFSET ?
+	`
+
+	queryArgs := []interface{}{ip, ip, pageInfo.GetPageSize(), pageInfo.GetStartIdx()}
 	err = DB.Raw(query, queryArgs...).Scan(&results).Error
 	return results, total, err
 }

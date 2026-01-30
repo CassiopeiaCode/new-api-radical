@@ -83,6 +83,7 @@ export default function FingerprintPage() {
   const [selectedIp, setSelectedIp] = useState('');
   const [relatedUsers, setRelatedUsers] = useState([]);
   const [relatedUsersLoading, setRelatedUsersLoading] = useState(false);
+  const [relatedQueryType, setRelatedQueryType] = useState('visitor_id'); // visitor_id | ip | visitor_id_ip
 
   const pageSize = 20;
 
@@ -131,15 +132,24 @@ export default function FingerprintPage() {
     }
   }, []);
 
-  // 加载关联用户
-  const loadRelatedUsers = useCallback(async (visitorId, ip) => {
+  // 加载关联用户：按 visitor_id(+ip) 或按 ip
+  const loadRelatedUsers = useCallback(async (type, visitorId, ip) => {
     setRelatedUsersLoading(true);
     try {
-      const params = { visitor_id: visitorId, p: 1, page_size: 100 };
-      if (ip) {
+      let url = '/api/fingerprint/users';
+      const params = { p: 1, page_size: 100 };
+
+      if (type === 'ip') {
+        url = '/api/fingerprint/users_by_ip';
         params.ip = ip;
+      } else {
+        params.visitor_id = visitorId;
+        if (type === 'visitor_id_ip' && ip) {
+          params.ip = ip;
+        }
       }
-      const res = await API.get('/api/fingerprint/users', { params });
+
+      const res = await API.get(url, { params });
       const { success, data, message } = res.data;
       if (success) {
         setRelatedUsers(data?.items || []);
@@ -163,11 +173,12 @@ export default function FingerprintPage() {
   }, [activeTab]);
 
   // 查看关联用户
-  const handleViewUsers = (visitorId, ip) => {
-    setSelectedVisitorId(visitorId);
+  const handleViewUsers = (type, visitorId, ip) => {
+    setRelatedQueryType(type);
+    setSelectedVisitorId(visitorId || '');
     setSelectedIp(ip || '');
     setUsersModalVisible(true);
-    loadRelatedUsers(visitorId, ip);
+    loadRelatedUsers(type, visitorId, ip);
   };
 
   // 重复指纹表格列
@@ -216,7 +227,7 @@ export default function FingerprintPage() {
           <Button
             size='small'
             type='primary'
-            onClick={() => handleViewUsers(record.visitor_id, record.ip)}
+            onClick={() => handleViewUsers('visitor_id_ip', record.visitor_id, record.ip)}
           >
             {t('查看用户')}
           </Button>
@@ -286,14 +297,23 @@ export default function FingerprintPage() {
       {
         title: t('操作'),
         key: 'action',
-        width: 120,
+        width: 220,
         render: (_, record) => (
-          <Button
-            size='small'
-            onClick={() => handleViewUsers(record.visitor_id)}
-          >
-            {t('查看关联')}
-          </Button>
+          <Space>
+            <Button
+              size='small'
+              onClick={() => handleViewUsers('visitor_id', record.visitor_id, '')}
+            >
+              {t('按VisitorID')}
+            </Button>
+            <Button
+              size='small'
+              onClick={() => handleViewUsers('ip', '', record.ip)}
+              disabled={!record.ip}
+            >
+              {t('按IP')}
+            </Button>
+          </Space>
         ),
       },
     ],
@@ -465,7 +485,22 @@ export default function FingerprintPage() {
       <Modal
         title={
           <span>
-            {t('关联用户')} - <code>{selectedVisitorId}</code> {selectedIp && <span>IP: <code>{selectedIp}</code></span>}
+            {t('关联用户')}{' '}
+            {relatedQueryType === 'ip' ? (
+              <>
+                - IP: <code>{selectedIp}</code>
+              </>
+            ) : (
+              <>
+                - <code>{selectedVisitorId}</code>
+                {relatedQueryType === 'visitor_id_ip' && selectedIp && (
+                  <span>
+                    {' '}
+                    IP: <code>{selectedIp}</code>
+                  </span>
+                )}
+              </>
+            )}
           </span>
         }
         visible={usersModalVisible}

@@ -299,6 +299,7 @@ func SetApiRouter(router *gin.Engine) {
 			adminFingerprintRoute.GET("/", controller.GetAllFingerprints)
 			adminFingerprintRoute.GET("/search", controller.SearchFingerprints)
 			adminFingerprintRoute.GET("/users", controller.FindUsersByVisitorId)
+			adminFingerprintRoute.GET("/users_by_ip", controller.FindUsersByIP)
 			adminFingerprintRoute.GET("/duplicates", controller.GetDuplicateVisitorIds)
 		}
 
