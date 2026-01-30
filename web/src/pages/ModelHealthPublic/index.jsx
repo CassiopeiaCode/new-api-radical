@@ -18,8 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Spin, Typography, Button, Avatar, Tooltip, Input } from '@douyinfe/semi-ui';
-import { IconRefresh, IconSearch, IconTickCircle, IconAlertTriangle, IconClose } from '@douyinfe/semi-icons';
+import { Card, Spin, Typography, Tooltip, Input } from '@douyinfe/semi-ui';
+import { IconSearch, IconTickCircle, IconClose } from '@douyinfe/semi-icons';
 import { API, showError, timestamp2string } from '../../helpers';
 
 function formatRate(rate) {
@@ -43,8 +43,6 @@ function getRateLevel(rate) {
 
 function HealthCell({ cell, isLatest }) {
   const rate = Number(cell?.success_rate) || 0;
-  const total = Number(cell?.total_slices) || 0;
-  const success = Number(cell?.success_slices) || 0;
   const isFilled = cell?.is_filled;
   const { color, bg } = getRateLevel(rate);
 
@@ -277,29 +275,10 @@ export default function ModelHealthPublicPage() {
       <div className='mb-8'>
         <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
           <div>
-            <h1 className='text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-500 bg-clip-text text-transparent'>
-              模型健康度监控
-            </h1>
             <p className='text-sm sm:text-base text-gray-500 mt-2'>
               最近 24 小时各模型运行状态一览
             </p>
           </div>
-          <Button
-            icon={<IconRefresh />}
-            onClick={load}
-            loading={loading}
-            theme='solid'
-            size='large'
-            style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              border: 'none',
-              borderRadius: '12px',
-              padding: '0 24px',
-              height: '44px',
-            }}
-          >
-            刷新数据
-          </Button>
         </div>
       </div>
 
