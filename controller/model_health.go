@@ -51,6 +51,7 @@ type publicModelsHealthHourlyLast24hRespItem struct {
 	TotalRequests   int64   `json:"total_requests"`
 	ErrorRequests   int64   `json:"error_requests"`
 	SuccessRequests int64   `json:"success_requests"`
+	SuccessTokens   int64   `json:"success_tokens"`
 }
 
 // GetModelHealthHourlyStatsAPI 查询模型在小时 bucket 上的健康度（success_slices/total_slices/success_rate）。
@@ -170,6 +171,31 @@ func GetPublicModelsHealthHourlyLast24hAPI(c *gin.Context) {
 		return
 	}
 
+	// 从 quota_data 获取“成功请求 token_used”（RecordConsumeLog 写入，天然是成功请求口径）
+	type quotaAggRow struct {
+		ModelName     string `gorm:"column:model_name"`
+		HourStartTs   int64  `gorm:"column:hour_start_ts"`
+		SuccessTokens int64  `gorm:"column:success_tokens"`
+		SuccessCount  int64  `gorm:"column:success_count"`
+	}
+	var quotaRows []quotaAggRow
+	_ = model.DB.Table("quota_data").
+		Select("model_name, created_at as hour_start_ts, SUM(token_used) as success_tokens, SUM(count) as success_count").
+		Where("created_at >= ? AND created_at < ?", startHourTs, endHourTs).
+		Group("model_name, created_at").
+		Scan(&quotaRows).Error
+
+	quotaMap := make(map[string]map[int64]quotaAggRow, 128)
+	for _, r := range quotaRows {
+		if r.ModelName == "" {
+			continue
+		}
+		if _, ok := quotaMap[r.ModelName]; !ok {
+			quotaMap[r.ModelName] = make(map[int64]quotaAggRow, 32)
+		}
+		quotaMap[r.ModelName][r.HourStartTs] = r
+	}
+
 	// Fill missing hours per model with zeros for stable UI rendering.
 	// Build desired hours list
 	wantHours := make([]int64, 0, 24)
@@ -191,7 +217,15 @@ func GetPublicModelsHealthHourlyLast24hAPI(c *gin.Context) {
 	resp := make([]publicModelsHealthHourlyLast24hRespItem, 0, len(modelOrder)*len(wantHours))
 	for _, modelName := range modelOrder {
 		hourMap := grouped[modelName]
+		modelQuota := quotaMap[modelName]
 		for _, h := range wantHours {
+			qt := int64(0)
+			if modelQuota != nil {
+				if q, ok := modelQuota[h]; ok {
+					qt = q.SuccessTokens
+				}
+			}
+
 			if stat, ok := hourMap[h]; ok {
 				resp = append(resp, publicModelsHealthHourlyLast24hRespItem{
 					ModelName:       stat.ModelName,
@@ -202,6 +236,7 @@ func GetPublicModelsHealthHourlyLast24hAPI(c *gin.Context) {
 					TotalRequests:   stat.TotalRequests,
 					ErrorRequests:   stat.ErrorRequests,
 					SuccessRequests: stat.SuccessRequests,
+					SuccessTokens:   qt,
 				})
 				continue
 			}
@@ -214,6 +249,7 @@ func GetPublicModelsHealthHourlyLast24hAPI(c *gin.Context) {
 				TotalRequests:   0,
 				ErrorRequests:   0,
 				SuccessRequests: 0,
+				SuccessTokens:   qt,
 			})
 		}
 	}

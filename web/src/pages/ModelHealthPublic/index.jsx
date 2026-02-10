@@ -41,9 +41,15 @@ function getRateLevel(rate) {
   return { level: 'critical', color: '#ff8a65', bg: 'rgba(255, 138, 101, 0.15)', text: '异常' };
 }
 
+function formatTokens(v) {
+  const n = Number(v) || 0;
+  return n.toLocaleString();
+}
+
 function HealthCell({ cell, isLatest }) {
   const rate = Number(cell?.success_rate) || 0;
   const isFilled = cell?.is_filled;
+  const tokens = Number(cell?.success_tokens) || 0;
   const { color, bg } = getRateLevel(rate);
 
   return (
@@ -53,6 +59,7 @@ function HealthCell({ cell, isLatest }) {
           <div className='font-semibold mb-1.5 text-sm'>{hourLabel(cell?.hour_start_ts)}</div>
           <div className='space-y-1'>
             <div>成功率: <span className='font-medium'>{isFilled ? `~${formatRate(rate)}` : formatRate(rate)}</span></div>
+            <div>成功 Token: <span className='font-medium'>{formatTokens(tokens)}</span></div>
             {isFilled && <div className='text-gray-400 italic'>无数据，使用平均值</div>}
           </div>
         </div>
@@ -195,11 +202,13 @@ export default function ModelHealthPublicPage() {
     let criticalModels = 0;
     let totalSuccessSlices = 0;
     let totalSlices = 0;
+    let totalSuccessTokens = 0;
 
     const modelData = models.map((modelName) => {
       const hourMap = byModel.get(modelName);
       let modelTotalSuccess = 0;
       let modelTotalSlices = 0;
+      let modelTotalTokens = 0;
 
       for (const ts of hourStarts) {
         const stat = hourMap?.get(ts);
@@ -207,11 +216,15 @@ export default function ModelHealthPublicPage() {
           modelTotalSuccess += Number(stat.success_slices) || 0;
           modelTotalSlices += Number(stat.total_slices) || 0;
         }
+        if (stat) {
+          modelTotalTokens += Number(stat.success_tokens) || 0;
+        }
       }
 
       const avgRate = modelTotalSlices > 0 ? modelTotalSuccess / modelTotalSlices : 0;
       totalSuccessSlices += modelTotalSuccess;
       totalSlices += modelTotalSlices;
+      totalSuccessTokens += modelTotalTokens;
 
       const { level } = getRateLevel(avgRate);
       if (level === 'excellent' || level === 'good') healthyModels++;
@@ -229,6 +242,7 @@ export default function ModelHealthPublicPage() {
           success_slices: 0,
           total_slices: 0,
           success_rate: avgRate,
+          success_tokens: Number(stat?.success_tokens) || 0,
           is_filled: true,
         };
       });
@@ -238,11 +252,12 @@ export default function ModelHealthPublicPage() {
         avg_rate: avgRate,
         total_success: modelTotalSuccess,
         total_slices: modelTotalSlices,
+        total_tokens: modelTotalTokens,
         hourly: hourlyData.reverse(),
       };
     });
 
-    modelData.sort((a, b) => b.total_success - a.total_success);
+    modelData.sort((a, b) => (b.total_tokens || 0) - (a.total_tokens || 0));
 
     const overallRate = totalSlices > 0 ? totalSuccessSlices / totalSlices : 0;
 
@@ -256,6 +271,7 @@ export default function ModelHealthPublicPage() {
         overallRate,
         totalSuccessSlices,
         totalSlices,
+        totalSuccessTokens,
       },
     };
   }, [payload?.rows, hourStarts]);
@@ -311,11 +327,11 @@ export default function ModelHealthPublicPage() {
           />
           <StatCard
             icon={<IconTickCircle className='text-white' size='large' />}
-            title='优良模型'
-            value={stats.healthyModels}
-            subtitle='成功率 ≥80%'
-            color='#aed581'
-            bgGradient='linear-gradient(135deg, #aed581 0%, #8fb86a 100%)'
+            title='成功 Token'
+            value={formatTokens(stats.totalSuccessTokens)}
+            subtitle='过去24小时'
+            color='#60a5fa'
+            bgGradient='linear-gradient(135deg, #60a5fa 0%, #2563eb 100%)'
             iconBg='rgba(255,255,255,0.25)'
           />
           <StatCard
@@ -401,8 +417,8 @@ export default function ModelHealthPublicPage() {
                             {model.model_name}
                           </div>
                         </Tooltip>
-                        <div className='flex items-center gap-3 text-xs sm:text-sm mt-1'>
-                          <span 
+                        <div className='flex items-center gap-3 text-xs sm:text-sm mt-1 flex-wrap'>
+                          <span
                             className='font-bold px-2 py-0.5 rounded-md'
                             style={{ color, backgroundColor: bg }}
                           >
@@ -410,6 +426,9 @@ export default function ModelHealthPublicPage() {
                           </span>
                           <span className='text-gray-400 font-medium'>
                             24h 平均
+                          </span>
+                          <span className='text-gray-400 font-medium'>
+                            · Token {formatTokens(model.total_tokens)}
                           </span>
                         </div>
                       </div>

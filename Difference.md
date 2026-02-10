@@ -26,11 +26,15 @@
     - 返回补齐：当某小时无数据时，API 会补 0 行，保证前端渲染稳定（补齐逻辑见 [`controller.GetModelHealthHourlyStatsAPI()`](controller/model_health.go:111)）。
 
 - 公共页面数据源（无需登录，展示所有模型最近 24h 每小时健康度）
-  - 公共 API：[`controller.GetPublicModelsHealthHourlyLast24hAPI()`](controller/model_health.go:155) 计算 `start_hour/end_hour`（对齐到整点）后调用 [`model.GetAllModelsHealthHourlyStats()`](model/model_health_query.go:75)，并按“每模型 × 24 小时”补齐缺失小时（补齐见 [`controller.GetPublicModelsHealthHourlyLast24hAPI()`](controller/model_health.go:173)）。
+  - 公共 API：[`controller.GetPublicModelsHealthHourlyLast24hAPI()`](controller/model_health.go:156) 计算 `start_hour/end_hour`（对齐到整点）后调用 [`model.GetAllModelsHealthHourlyStats()`](model/model_health_query.go:75)，并按“每模型 × 24 小时”补齐缺失小时（补齐见 [`controller.GetPublicModelsHealthHourlyLast24hAPI()`](controller/model_health.go:199)）。
+  - `成功请求 token` 展示（不修改成功率口径）：
+    - 数据来源：复用小时聚合表 `quota_data` 的 `token_used`（写入点见 [`model.LogQuotaData()`](model/usedata.go:58)），按 `model_name + created_at(整点)` 聚合得到每小时成功 token。
+    - 合并位置：在公共 API 内额外查询 `quota_data` 并把结果合并进返回行字段 `success_tokens`（实现见 [`controller.GetPublicModelsHealthHourlyLast24hAPI()`](controller/model_health.go:156)）。
+    - 说明：成功率仍完全来自健康度切片表 `model_health_slice_5m`（`success_slices/total_slices/success_rate` 逻辑不变），token 统计仅用于展示与排序。
   - 路由与鉴权：
     - 管理员接口 `/api/model_health/hourly`：在 [`router.SetApiRouter()`](router/api-router.go:11) 中挂载并强制 [`middleware.AdminAuth()`](router/api-router.go:276)（满足“非管理员隐藏可自定义模型和时间的查询（在控制台）”）。
     - 公共接口 `/api/public/model_health/hourly_last24h`：在 [`router.SetApiRouter()`](router/api-router.go:11) 中挂载且无鉴权（满足“新页面所有用户即使非登录也可查看”所需的数据源）。
-  - 缓存：公共接口带 Redis + 内存双层缓存，key/TTL 定义见 [`publicModelHealthCacheKey`](controller/model_health.go:19) 与 [`publicModelHealthCacheTTL`](controller/model_health.go:20)；读取见 [`getPublicModelHealthCache()`](controller/model_health.go:234)，写入见 [`setPublicModelHealthCache()`](controller/model_health.go:258)。
+  - 缓存：公共接口仍使用 Redis + 内存双层缓存，缓存内容包含新增字段 `success_tokens`；key/TTL 定义见 [`publicModelHealthCacheKey`](controller/model_health.go:19) 与 [`publicModelHealthCacheTTL`](controller/model_health.go:20)；读取见 [`getPublicModelHealthCache()`](controller/model_health.go:270)，写入见 [`setPublicModelHealthCache()`](controller/model_health.go:294)。
 
 2. 【已实现】管理员豁免“用户请求限速 RPM”（在无法按标签精确解除某类限速时的兜底）
 
