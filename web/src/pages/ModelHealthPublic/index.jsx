@@ -349,8 +349,8 @@ export default function ModelHealthPublicPage() {
             title='优良模型'
             value={stats.healthyModels}
             subtitle='成功率 ≥80%'
-            color='#f59e0b'
-            bgGradient='linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)'
+            color='#0f766e'
+            bgGradient='linear-gradient(135deg, #5eead4 0%, #0f766e 100%)'
             iconBg='rgba(255,255,255,0.25)'
           />
         </div>
