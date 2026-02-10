@@ -327,7 +327,7 @@ export default function ModelHealthPublicPage() {
           />
           <StatCard
             icon={<IconTickCircle className='text-white' size='large' />}
-            title='·Token总数·'
+            title='Token总数'
             value={formatTokens(stats.totalSuccessTokens)}
             subtitle='过去24小时'
             color='#60a5fa'
