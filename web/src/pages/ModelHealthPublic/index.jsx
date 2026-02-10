@@ -42,8 +42,20 @@ function getRateLevel(rate) {
 }
 
 function formatTokens(v) {
-  const n = Number(v) || 0;
-  return n.toLocaleString();
+  const n0 = Number(v) || 0;
+  const n = Math.floor(Math.abs(n0));
+
+  const units = ['', 'K', 'M', 'G', 'T', 'B'];
+  let unitIdx = 0;
+  let value = n;
+
+  while (value >= 1000 && unitIdx < units.length - 1) {
+    value = Math.floor(value / 1000);
+    unitIdx++;
+  }
+
+  const sign = n0 < 0 ? '-' : '';
+  return `${sign}${value}${units[unitIdx]}`;
 }
 
 function HealthCell({ cell, isLatest }) {
@@ -59,7 +71,7 @@ function HealthCell({ cell, isLatest }) {
           <div className='font-semibold mb-1.5 text-sm'>{hourLabel(cell?.hour_start_ts)}</div>
           <div className='space-y-1'>
             <div>成功率: <span className='font-medium'>{isFilled ? `~${formatRate(rate)}` : formatRate(rate)}</span></div>
-            <div>成功 Token: <span className='font-medium'>{formatTokens(tokens)}</span></div>
+            <div>总Token: <span className='font-medium'>{formatTokens(tokens)}</span></div>
             {isFilled && <div className='text-gray-400 italic'>无数据，使用平均值</div>}
           </div>
         </div>
@@ -78,7 +90,6 @@ function HealthCell({ cell, isLatest }) {
     </Tooltip>
   );
 }
-
 
 function StatCard({ icon, title, value, subtitle, color, bgGradient, iconBg }) {
   return (
@@ -284,7 +295,6 @@ export default function ModelHealthPublicPage() {
 
   const latestHour = hourStarts.length > 0 ? hourStarts[hourStarts.length - 1] : null;
 
-
   return (
     <div className='mt-[60px] px-3 sm:px-6 lg:px-8 pb-10 max-w-6xl mx-auto'>
       {/* Header */}
@@ -425,10 +435,7 @@ export default function ModelHealthPublicPage() {
                             {formatRate(model.avg_rate)}
                           </span>
                           <span className='text-gray-400 font-medium'>
-                            24h 平均
-                          </span>
-                          <span className='text-gray-400 font-medium'>
-                            · Token {formatTokens(model.total_tokens)}
+                            {formatTokens(model.total_tokens)}
                           </span>
                         </div>
                       </div>
