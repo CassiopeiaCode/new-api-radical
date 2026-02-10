@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Spin, Typography, Tooltip, Input } from '@douyinfe/semi-ui';
+import { Card, Spin, Typography, Tooltip, Input, Skeleton } from '@douyinfe/semi-ui';
 import { IconSearch, IconTickCircle, IconClose } from '@douyinfe/semi-icons';
 import { API, showError, timestamp2string } from '../../helpers';
 
@@ -139,6 +139,109 @@ function LegendItem({ color, label }) {
         style={{ backgroundColor: color }}
       />
       <span className='text-xs font-medium text-gray-600 dark:text-gray-300'>{label}</span>
+    </div>
+  );
+}
+
+function StatCardSkeleton() {
+  return (
+    <div className='relative overflow-hidden rounded-2xl p-5 sm:p-6 min-h-[140px] flex flex-col justify-between shadow-lg bg-gray-100'>
+      <div className='flex items-center justify-between'>
+        <Skeleton.Title style={{ width: 86, height: 14, marginBottom: 0, borderRadius: 8 }} />
+        <Skeleton.Avatar size='large' shape='square' />
+      </div>
+      <div className='mt-3'>
+        <Skeleton.Title style={{ width: 110, height: 34, marginBottom: 10, borderRadius: 10 }} />
+        <Skeleton.Title style={{ width: 80, height: 12, marginBottom: 0, borderRadius: 8 }} />
+      </div>
+    </div>
+  );
+}
+
+function LegendSkeleton() {
+  const tagWidths = [86, 92, 78, 96, 82];
+
+  return (
+    <Card className='!rounded-2xl mb-6 shadow-sm' bodyStyle={{ padding: '16px 20px' }}>
+      <div className='flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4'>
+        <div className='flex flex-wrap items-center gap-3'>
+          <Skeleton.Title style={{ width: 72, height: 14, marginBottom: 0, borderRadius: 8 }} />
+          <div className='flex flex-wrap items-center gap-2'>
+            {tagWidths.map((w, idx) => (
+              <div
+                key={idx}
+                className='flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800/50'
+              >
+                <Skeleton.Avatar size='extra-small' shape='square' />
+                <Skeleton.Button
+                  size='small'
+                  style={{ width: w, height: 20, borderRadius: 8 }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 模拟搜索框 */}
+        <Skeleton.Button style={{ width: 220, height: 32, borderRadius: 10 }} />
+      </div>
+    </Card>
+  );
+}
+
+function TimeLabelsSkeleton() {
+  return (
+    <div className='mb-3 pl-[200px] sm:pl-[260px] overflow-x-auto'>
+      <div className='flex gap-1 min-w-max'>
+        {Array.from({ length: 24 }).map((_, idx) => (
+          <div key={idx} className='w-7 sm:w-8 text-center'>
+            {idx % 3 === 0 && (
+              <Skeleton.Title style={{ width: 26, height: 12, marginBottom: 0, borderRadius: 6 }} />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ModelListSkeleton() {
+  return (
+    <div className='space-y-3'>
+      {Array.from({ length: 6 }).map((_, idx) => (
+        <Card
+          key={idx}
+          className='!rounded-xl shadow-sm border-l-4'
+          style={{ borderLeftColor: 'rgba(148, 163, 184, 0.7)' }}
+          bodyStyle={{ padding: '14px 18px' }}
+        >
+          <div className='flex items-center gap-4'>
+            <div className='w-[180px] sm:w-[240px] flex-shrink-0'>
+              <div className='flex items-center gap-3'>
+                <Skeleton.Title style={{ width: 12, height: 40, marginBottom: 0, borderRadius: 9999 }} />
+                <div className='min-w-0 flex-1'>
+                  <Skeleton.Title style={{ width: 160, height: 16, marginBottom: 10, borderRadius: 8 }} />
+                  <div className='flex items-center gap-3 flex-wrap'>
+                    <Skeleton.Title style={{ width: 70, height: 18, marginBottom: 0, borderRadius: 6 }} />
+                    <Skeleton.Title style={{ width: 52, height: 14, marginBottom: 0, borderRadius: 6 }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className='flex-1 overflow-x-auto'>
+              <div className='flex gap-1 min-w-max'>
+                {Array.from({ length: 24 }).map((__, jdx) => (
+                  <div
+                    key={jdx}
+                    className='w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gray-200 animate-pulse'
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+      ))}
     </div>
   );
 }
@@ -294,6 +397,8 @@ export default function ModelHealthPublicPage() {
   }, [modelData, searchText]);
 
   const latestHour = hourStarts.length > 0 ? hourStarts[hourStarts.length - 1] : null;
+  const isInitialLoading = loading && !payload;
+  const showSpin = loading && !!payload;
 
   return (
     <div className='mt-[60px] px-3 sm:px-6 lg:px-8 pb-10 max-w-6xl mx-auto'>
@@ -314,153 +419,165 @@ export default function ModelHealthPublicPage() {
         </div>
       )}
 
-      <Spin spinning={loading}>
-        {/* Stats Cards - 更大气的统计卡片 */}
+      <Spin spinning={showSpin}>
+        {/* Stats Cards */}
         <div className='grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8'>
-          <StatCard
-            icon={<IconTickCircle className='text-white' size='large' />}
-            title='监控模型数'
-            value={stats.totalModels}
-            subtitle={`${stats.healthyModels} 个健康`}
-            color='#4dd0e1'
-            bgGradient='linear-gradient(135deg, #4dd0e1 0%, #3ba8b6 100%)'
-            iconBg='rgba(255,255,255,0.25)'
-          />
-          <StatCard
-            icon={<IconTickCircle className='text-white' size='large' />}
-            title='整体成功率'
-            value={formatRate(stats.overallRate)}
-            subtitle='过去24小时'
-            color='#66bb6a'
-            bgGradient='linear-gradient(135deg, #66bb6a 0%, #4a9c5d 100%)'
-            iconBg='rgba(255,255,255,0.25)'
-          />
-          <StatCard
-            icon={<IconTickCircle className='text-white' size='large' />}
-            title='Token总数'
-            value={formatTokens(stats.totalSuccessTokens)}
-            subtitle='过去24小时'
-            color='#60a5fa'
-            bgGradient='linear-gradient(135deg, #60a5fa 0%, #2563eb 100%)'
-            iconBg='rgba(255,255,255,0.25)'
-          />
-          <StatCard
-            icon={<IconTickCircle className='text-white' size='large' />}
-            title='优良模型'
-            value={stats.healthyModels}
-            subtitle='成功率 ≥80%'
-            color='#0f766e'
-            bgGradient='linear-gradient(135deg, #5eead4 0%, #0f766e 100%)'
-            iconBg='rgba(255,255,255,0.25)'
-          />
+          {isInitialLoading ? (
+            <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+            </>
+          ) : (
+            <>
+              <StatCard
+                icon={<IconTickCircle className='text-white' size='large' />}
+                title='监控模型数'
+                value={stats.totalModels}
+                subtitle={`${stats.healthyModels} 个健康`}
+                color='#4dd0e1'
+                bgGradient='linear-gradient(135deg, #4dd0e1 0%, #3ba8b6 100%)'
+                iconBg='rgba(255,255,255,0.25)'
+              />
+              <StatCard
+                icon={<IconTickCircle className='text-white' size='large' />}
+                title='整体成功率'
+                value={formatRate(stats.overallRate)}
+                subtitle='过去24小时'
+                color='#66bb6a'
+                bgGradient='linear-gradient(135deg, #66bb6a 0%, #4a9c5d 100%)'
+                iconBg='rgba(255,255,255,0.25)'
+              />
+              <StatCard
+                icon={<IconTickCircle className='text-white' size='large' />}
+                title='Token总数'
+                value={formatTokens(stats.totalSuccessTokens)}
+                subtitle='过去24小时'
+                color='#60a5fa'
+                bgGradient='linear-gradient(135deg, #60a5fa 0%, #2563eb 100%)'
+                iconBg='rgba(255,255,255,0.25)'
+              />
+              <StatCard
+                icon={<IconTickCircle className='text-white' size='large' />}
+                title='优良模型'
+                value={stats.healthyModels}
+                subtitle='成功率 ≥80%'
+                color='#0f766e'
+                bgGradient='linear-gradient(135deg, #5eead4 0%, #0f766e 100%)'
+                iconBg='rgba(255,255,255,0.25)'
+              />
+            </>
+          )}
         </div>
 
-        {/* Legend - 更精致的图例 */}
-        <Card 
-          className='!rounded-2xl mb-6 shadow-sm' 
-          bodyStyle={{ padding: '16px 20px' }}
-        >
-          <div className='flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4'>
-            <div className='flex flex-wrap items-center gap-3'>
-              <span className='text-sm font-semibold text-gray-700 dark:text-gray-200 mr-2'>状态图例</span>
-              <div className='flex flex-wrap items-center gap-2'>
-                <LegendItem color='#4dd0e1' label='优秀 (≥95%)' />
-                <LegendItem color='#66bb6a' label='良好 (80-95%)' />
-                <LegendItem color='#aed581' label='一般 (60-80%)' />
-                <LegendItem color='#ffb74d' label='欠佳 (20-60%)' />
-                <LegendItem color='#ff8a65' label='异常 (<20%)' />
-              </div>
-            </div>
-            <Input
-              prefix={<IconSearch />}
-              placeholder='搜索模型...'
-              value={searchText}
-              onChange={setSearchText}
-              showClear
-              style={{ width: 220, borderRadius: '10px' }}
-            />
-          </div>
-        </Card>
-
-        {/* Time Labels - 更清晰的时间标签 */}
-        {hourStarts.length > 0 && (
-          <div className='mb-3 pl-[200px] sm:pl-[260px] overflow-x-auto'>
-            <div className='flex gap-1 min-w-max'>
-              {[...hourStarts].reverse().map((ts, idx) => (
-                <div
-                  key={ts}
-                  className='w-7 sm:w-8 text-center'
-                >
-                  {idx % 3 === 0 && (
-                    <div className='text-[11px] font-medium text-gray-400'>
-                      {hourLabel(ts)}
-                    </div>
-                  )}
+        {/* Legend */}
+        {isInitialLoading ? (
+          <LegendSkeleton />
+        ) : (
+          <Card className='!rounded-2xl mb-6 shadow-sm' bodyStyle={{ padding: '16px 20px' }}>
+            <div className='flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4'>
+              <div className='flex flex-wrap items-center gap-3'>
+                <span className='text-sm font-semibold text-gray-700 dark:text-gray-200 mr-2'>状态图例</span>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <LegendItem color='#4dd0e1' label='优秀 (≥95%)' />
+                  <LegendItem color='#66bb6a' label='良好 (80-95%)' />
+                  <LegendItem color='#aed581' label='一般 (60-80%)' />
+                  <LegendItem color='#ffb74d' label='欠佳 (20-60%)' />
+                  <LegendItem color='#ff8a65' label='异常 (<20%)' />
                 </div>
-              ))}
+              </div>
+              <Input
+                prefix={<IconSearch />}
+                placeholder='搜索模型...'
+                value={searchText}
+                onChange={setSearchText}
+                showClear
+                style={{ width: 220, borderRadius: '10px' }}
+              />
             </div>
-          </div>
+          </Card>
         )}
 
-        {/* Model Health Grid - 更整齐的健康度网格 */}
-        <div className='space-y-3'>
-          {filteredModelData.map((model) => {
-            const { color, bg } = getRateLevel(model.avg_rate);
-            return (
-              <Card
-                key={model.model_name}
-                className='!rounded-xl hover:shadow-lg transition-all duration-300 border-l-4'
-                style={{ borderLeftColor: color }}
-                bodyStyle={{ padding: '14px 18px' }}
-              >
-                <div className='flex items-center gap-4'>
-                  {/* Model Info - 更宽的模型信息区 */}
-                  <div className='w-[180px] sm:w-[240px] flex-shrink-0'>
-                    <div className='flex items-center gap-3'>
-                      <div
-                        className='w-3 h-10 rounded-full flex-shrink-0 shadow-sm'
-                        style={{ backgroundColor: color }}
-                      />
-                      <div className='min-w-0 flex-1'>
-                        <Tooltip content={model.model_name}>
-                          <div className='font-semibold text-sm sm:text-base truncate text-gray-800 dark:text-gray-100'>
-                            {model.model_name}
+        {/* Time Labels */}
+        {isInitialLoading ? (
+          <TimeLabelsSkeleton />
+        ) : (
+          hourStarts.length > 0 && (
+            <div className='mb-3 pl-[200px] sm:pl-[260px] overflow-x-auto'>
+              <div className='flex gap-1 min-w-max'>
+                {[...hourStarts].reverse().map((ts, idx) => (
+                  <div key={ts} className='w-7 sm:w-8 text-center'>
+                    {idx % 3 === 0 && (
+                      <div className='text-[11px] font-medium text-gray-400'>
+                        {hourLabel(ts)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        )}
+
+        {/* Model Health Grid */}
+        {isInitialLoading ? (
+          <ModelListSkeleton />
+        ) : (
+          <div className='space-y-3'>
+            {filteredModelData.map((model) => {
+              const { color, bg } = getRateLevel(model.avg_rate);
+              return (
+                <Card
+                  key={model.model_name}
+                  className='!rounded-xl hover:shadow-lg transition-all duration-300 border-l-4'
+                  style={{ borderLeftColor: color }}
+                  bodyStyle={{ padding: '14px 18px' }}
+                >
+                  <div className='flex items-center gap-4'>
+                    <div className='w-[180px] sm:w-[240px] flex-shrink-0'>
+                      <div className='flex items-center gap-3'>
+                        <div
+                          className='w-3 h-10 rounded-full flex-shrink-0 shadow-sm'
+                          style={{ backgroundColor: color }}
+                        />
+                        <div className='min-w-0 flex-1'>
+                          <Tooltip content={model.model_name}>
+                            <div className='font-semibold text-sm sm:text-base truncate text-gray-800 dark:text-gray-100'>
+                              {model.model_name}
+                            </div>
+                          </Tooltip>
+                          <div className='flex items-center gap-3 text-xs sm:text-sm mt-1 flex-wrap'>
+                            <span className='font-bold px-2 py-0.5 rounded-md' style={{ color, backgroundColor: bg }}>
+                              {formatRate(model.avg_rate)}
+                            </span>
+                            <span className='text-gray-400 font-medium'>
+                              {formatTokens(model.total_tokens)}
+                            </span>
                           </div>
-                        </Tooltip>
-                        <div className='flex items-center gap-3 text-xs sm:text-sm mt-1 flex-wrap'>
-                          <span
-                            className='font-bold px-2 py-0.5 rounded-md'
-                            style={{ color, backgroundColor: bg }}
-                          >
-                            {formatRate(model.avg_rate)}
-                          </span>
-                          <span className='text-gray-400 font-medium'>
-                            {formatTokens(model.total_tokens)}
-                          </span>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Health Grid - 更大的健康度方块 */}
-                  <div className='flex-1 overflow-x-auto'>
-                    <div className='flex gap-1 min-w-max'>
-                      {model.hourly.map((cell) => (
-                        <HealthCell
-                          key={cell.hour_start_ts}
-                          cell={cell}
-                          isLatest={cell.hour_start_ts === latestHour}
-                        />
-                      ))}
+                    <div className='flex-1 overflow-x-auto'>
+                      <div className='flex gap-1 min-w-max'>
+                        {model.hourly.map((cell) => (
+                          <HealthCell
+                            key={cell.hour_start_ts}
+                            cell={cell}
+                            isLatest={cell.hour_start_ts === latestHour}
+                          />
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
 
-        {!loading && filteredModelData.length === 0 && (
+        {!loading && !isInitialLoading && filteredModelData.length === 0 && (
           <Card className='!rounded-2xl shadow-sm'>
             <div className='text-center py-16'>
               <div className='text-7xl mb-6'>📊</div>
