@@ -45,13 +45,13 @@ function formatTokens(v) {
   const n0 = Number(v) || 0;
   const n = Math.abs(n0);
 
-  // 使用3字母标准单位：Thousand, Million, Billion, Trillion
+  // 更专业/常见的统计与金融缩写：Ths/Mln/Bln/Trn
   const units = [
     { suffix: '', threshold: 1 },
-    { suffix: 'Tho', threshold: 1000 },           // thousand
-    { suffix: 'Mil', threshold: 1000000 },        // million
-    { suffix: 'Bil', threshold: 1000000000 },     // billion
-    { suffix: 'Tri', threshold: 1000000000000 }   // trillion
+    { suffix: 'Ths', threshold: 1000 }, // thousand(s)
+    { suffix: 'Mln', threshold: 1000000 }, // million
+    { suffix: 'Bln', threshold: 1000000000 }, // billion
+    { suffix: 'Trn', threshold: 1000000000000 }, // trillion
   ];
 
   let unitIdx = 0;
@@ -63,24 +63,15 @@ function formatTokens(v) {
   }
 
   const sign = n0 < 0 ? '-' : '';
-  
-  // 对于小于1000的数字，直接显示整数
+
   if (unitIdx === 0) {
     return `${sign}${Math.floor(n)}`;
   }
 
-  // 计算带小数的值，保留3位有效数字
   const value = n / units[unitIdx].threshold;
-  
-  // 根据数值大小决定小数位数，确保总共3位有效数字
-  let formatted;
-  if (value >= 100) {
-    formatted = Math.floor(value).toString(); // 100+ → 整数 (3位有效数字)
-  } else if (value >= 10) {
-    formatted = value.toFixed(1); // 10-99.9 → 1位小数 (3位有效数字)
-  } else {
-    formatted = value.toFixed(2); // 1.00-9.99 → 2位小数 (3位有效数字)
-  }
+
+  // 3 位有效数字（在 1~999 的范围不会变成科学计数法）
+  const formatted = Number(value.toPrecision(3)).toString();
 
   return `${sign}${formatted}${units[unitIdx].suffix}`;
 }
