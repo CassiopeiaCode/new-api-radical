@@ -45,13 +45,13 @@ function formatTokens(v) {
   const n0 = Number(v) || 0;
   const n = Math.floor(Math.abs(n0));
 
-  // 使用通用数学英文单位：thousand, million, billion, trillion
+  // 使用3字母标准单位：Thousand, Million, Billion, Trillion
   const units = [
     { suffix: '', threshold: 1 },
-    { suffix: 'K', threshold: 1000 },           // thousand
-    { suffix: 'M', threshold: 1000000 },        // million
-    { suffix: 'B', threshold: 1000000000 },     // billion
-    { suffix: 'T', threshold: 1000000000000 }   // trillion
+    { suffix: 'Tho', threshold: 1000 },           // thousand
+    { suffix: 'Mil', threshold: 1000000 },        // million
+    { suffix: 'Bil', threshold: 1000000000 },     // billion
+    { suffix: 'Tri', threshold: 1000000000000 }   // trillion
   ];
 
   let unitIdx = 0;
