@@ -44,36 +44,19 @@ function getRateLevel(rate) {
 function formatTokens(v) {
   const n0 = Number(v) || 0;
   const n = Math.abs(n0);
-
-  // 更专业/常见的统计与金融缩写：Ths/Mln/Bln/Trn
-  const units = [
-    { suffix: '', threshold: 1 },
-    { suffix: 'Ths', threshold: 1000 }, // thousand(s)
-    { suffix: 'Mln', threshold: 1000000 }, // million
-    { suffix: 'Bln', threshold: 1000000000 }, // billion
-    { suffix: 'Trn', threshold: 1000000000000 }, // trillion
-  ];
-
-  let unitIdx = 0;
-  for (let i = units.length - 1; i >= 0; i--) {
-    if (n >= units[i].threshold) {
-      unitIdx = i;
-      break;
-    }
-  }
-
   const sign = n0 < 0 ? '-' : '';
 
-  if (unitIdx === 0) {
-    return `${sign}${Math.floor(n)}`;
-  }
+  if (!Number.isFinite(n) || n === 0) return '0';
 
-  const value = n / units[unitIdx].threshold;
+  // 统一使用科学计数法：xxxExxx（大写 E，去掉 e+ 的 + 号）
+  // 用 3 位有效数字：toExponential(2) => 1.23e+6
+  const raw = n.toExponential(2);
+  const normalized = raw
+    .replace('e+', 'E')
+    .replace('e-', 'E-')
+    .replace(/E(\d+)/, 'E$1');
 
-  // 3 位有效数字（在 1~999 的范围不会变成科学计数法）
-  const formatted = Number(value.toPrecision(3)).toString();
-
-  return `${sign}${formatted}${units[unitIdx].suffix}`;
+  return `${sign}${normalized}`;
 }
 
 function HealthCell({ cell, isLatest }) {
