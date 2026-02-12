@@ -43,7 +43,7 @@ function getRateLevel(rate) {
 
 function formatTokens(v) {
   const n0 = Number(v) || 0;
-  const n = Math.floor(Math.abs(n0));
+  const n = Math.abs(n0);
 
   // 使用3字母标准单位：Thousand, Million, Billion, Trillion
   const units = [
@@ -62,9 +62,27 @@ function formatTokens(v) {
     }
   }
 
-  const value = unitIdx === 0 ? n : Math.floor(n / units[unitIdx].threshold);
   const sign = n0 < 0 ? '-' : '';
-  return `${sign}${value}${units[unitIdx].suffix}`;
+  
+  // 对于小于1000的数字，直接显示整数
+  if (unitIdx === 0) {
+    return `${sign}${Math.floor(n)}`;
+  }
+
+  // 计算带小数的值，保留3位有效数字
+  const value = n / units[unitIdx].threshold;
+  
+  // 根据数值大小决定小数位数，确保总共3位有效数字
+  let formatted;
+  if (value >= 100) {
+    formatted = Math.floor(value).toString(); // 100+ → 整数 (3位有效数字)
+  } else if (value >= 10) {
+    formatted = value.toFixed(1); // 10-99.9 → 1位小数 (3位有效数字)
+  } else {
+    formatted = value.toFixed(2); // 1.00-9.99 → 2位小数 (3位有效数字)
+  }
+
+  return `${sign}${formatted}${units[unitIdx].suffix}`;
 }
 
 function HealthCell({ cell, isLatest }) {
