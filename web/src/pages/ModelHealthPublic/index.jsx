@@ -45,17 +45,26 @@ function formatTokens(v) {
   const n0 = Number(v) || 0;
   const n = Math.floor(Math.abs(n0));
 
-  const units = ['', 'K', 'M', 'G', 'T', 'B'];
-  let unitIdx = 0;
-  let value = n;
+  // 使用通用数学英文单位：thousand, million, billion, trillion
+  const units = [
+    { suffix: '', threshold: 1 },
+    { suffix: 'K', threshold: 1000 },           // thousand
+    { suffix: 'M', threshold: 1000000 },        // million
+    { suffix: 'B', threshold: 1000000000 },     // billion
+    { suffix: 'T', threshold: 1000000000000 }   // trillion
+  ];
 
-  while (value >= 1000 && unitIdx < units.length - 1) {
-    value = Math.floor(value / 1000);
-    unitIdx++;
+  let unitIdx = 0;
+  for (let i = units.length - 1; i >= 0; i--) {
+    if (n >= units[i].threshold) {
+      unitIdx = i;
+      break;
+    }
   }
 
+  const value = unitIdx === 0 ? n : Math.floor(n / units[unitIdx].threshold);
   const sign = n0 < 0 ? '-' : '';
-  return `${sign}${value}${units[unitIdx]}`;
+  return `${sign}${value}${units[unitIdx].suffix}`;
 }
 
 function HealthCell({ cell, isLatest }) {
