@@ -11,8 +11,9 @@ Copyright (C) 2025 QuantumNous
 package model
 
 import (
-	"bytes"
-	"crypto/sha256"
+	"crypto/rand"
+	"crypto/sha1"
+	"math/bits"
 	"strings"
 	"sync"
 	"time"
@@ -27,26 +28,24 @@ const (
 	MaxUserSlots = 50
 	// 活跃时间窗口（秒）
 	ActiveWindowSeconds = 30
-	// 哈希前缀长度（字节）
-	HashPrefixLen = 16
+	// SimHash 海明距离阈值（<= 视为同一活跃任务槽）
+	SimHashThreshold = 5
 )
 
-// 哈希层级长度: 8, 64, 512, 4096, 32768, 131072 (128k)
-var hashLevels = []int{8, 64, 512, 4096, 32768, 131072}
+var simhashTokenSalt [16]byte
 
-// HashLevelCount 哈希层级数量
-const HashLevelCount = 6
-
-// MatchLevelCount 匹配时使用的层级数量（从最高级往下）
-const MatchLevelCount = 2
+func init() {
+	// 每次进程启动生成随机盐：让 SimHash 的 token 哈希在不同进程间不可直接对比
+	// 目的：降低被外部推断/复现指纹的可行性（同时会导致跨重启的活跃槽“继承”不连续，这是预期行为）
+	_, _ = rand.Read(simhashTokenSalt[:])
+}
 
 // TaskSlot 单个任务槽
 type TaskSlot struct {
-	UserID       int
-	Username     string
-	UpdatedAt    int64                                // Unix 秒
-	HashPrefix   [HashLevelCount][HashPrefixLen]byte  // 6个层级的哈希前缀
-	MaxLevelIdx  int                                  // 数据长度对应的最高层级索引
+	UserID    int
+	Username  string
+	UpdatedAt int64  // Unix 秒
+	SimHash   uint64 // 基于原始请求体/数据的 SimHash 指纹
 }
 
 // ActiveTaskSlotManager 活跃任务槽管理器
@@ -74,78 +73,74 @@ func GetActiveTaskSlotManager() *ActiveTaskSlotManager {
 	return activeTaskManager
 }
 
-// computeHashPrefixes 计算多级哈希前缀（增量计算，避免重复处理）
-// 返回哈希数组和最高层级索引
-func computeHashPrefixes(data string) ([HashLevelCount][HashPrefixLen]byte, int) {
-	var result [HashLevelCount][HashPrefixLen]byte
-	dataLen := len(data)
-	maxLevelIdx := 0
-	
-	prevEnd := 0
-	h := sha256.New()
-	
-	for i, level := range hashLevels {
-		end := level
-		if end > dataLen {
-			end = dataLen
-		}
-		
-		// 增量写入：只写入上次结束位置到当前位置的新数据
-		if end > prevEnd {
-			h.Write([]byte(data[prevEnd:end]))
-			prevEnd = end
-		}
-		
-		// 获取当前状态的哈希（不影响后续计算）
-		sum := h.Sum(nil)
-		copy(result[i][:], sum[:HashPrefixLen])
-		
-		// 记录数据长度能覆盖到的最高层级
-		if dataLen >= level {
-			maxLevelIdx = i
+// simhash64 计算文本的 64-bit SimHash
+// - 不做清洗/归一化：直接使用传入 data（通常是原始请求体）
+// - 特征：strings.Fields 分词 token
+// - 权重：每个 token 计 1（重复 token 会多次计入）
+func simhash64(data string) uint64 {
+	tokens := strings.Fields(data)
+	if len(tokens) == 0 {
+		return 0
+	}
+
+	var v [64]int
+	for _, tok := range tokens {
+		h := tokenHash64(tok)
+		for i := 0; i < 64; i++ {
+			if (h>>i)&1 == 1 {
+				v[i]++
+			} else {
+				v[i]--
+			}
 		}
 	}
-	
-	return result, maxLevelIdx
+
+	var out uint64
+	for i := 0; i < 64; i++ {
+		if v[i] >= 0 {
+			out |= 1 << i
+		}
+	}
+	return out
 }
 
-// matchHashPrefix 检查是否有哈希匹配
-// 基于当前请求的最高级往下 MatchLevelCount 个层级进行匹配
-func matchHashPrefix(slotHash, newHash [HashLevelCount][HashPrefixLen]byte, slotMaxLevel, newMaxLevel int) bool {
-	// 基于当前请求文本的最高级往下匹配
-	startLevel := newMaxLevel - MatchLevelCount + 1
-	if startLevel < 0 {
-		startLevel = 0
-	}
-	
-	// 只在当前请求的匹配范围内比较
-	for i := startLevel; i <= newMaxLevel; i++ {
-		// 槽的该层级必须有效（槽的数据长度也要覆盖到这一级）
-		if i <= slotMaxLevel && bytes.Equal(slotHash[i][:], newHash[i][:]) {
-			return true
-		}
-	}
-	return false
+func tokenHash64(token string) uint64 {
+	h := sha1.New()
+	_, _ = h.Write(simhashTokenSalt[:])
+	_, _ = h.Write([]byte(token))
+	sum := h.Sum(nil)
+	// little-endian: match the sandbox script behavior
+	return uint64(sum[0]) |
+		uint64(sum[1])<<8 |
+		uint64(sum[2])<<16 |
+		uint64(sum[3])<<24 |
+		uint64(sum[4])<<32 |
+		uint64(sum[5])<<40 |
+		uint64(sum[6])<<48 |
+		uint64(sum[7])<<56
+}
+
+func hamming64(a, b uint64) int {
+	return bits.OnesCount64(a ^ b)
 }
 
 // RecordTask 记录一次任务请求
-// data: 用于计算哈希的原始数据（如请求内容的哈希）
+// data: 用于计算 SimHash 的原始数据（默认是原始请求体；取不到时退化为 modelName）
 func (m *ActiveTaskSlotManager) RecordTask(userID int, username string, data string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := time.Now().Unix()
-	hashPrefixes, maxLevelIdx := computeHashPrefixes(data)
+	newHash := simhash64(data)
 
-	// 1. 在该用户的槽中查找可继承的槽
+	// 1. 在该用户的槽中查找可继承的槽（SimHash 距离 <= 阈值）
 	userSlots := m.userSlotIdx[userID]
 	for _, idx := range userSlots {
 		slot := m.slots[idx]
-		if matchHashPrefix(slot.HashPrefix, hashPrefixes, slot.MaxLevelIdx, maxLevelIdx) {
-			// 找到匹配，更新时间和哈希
+		if hamming64(slot.SimHash, newHash) <= SimHashThreshold {
+			// 找到匹配：更新时间，并用新指纹覆盖旧指纹
 			slot.UpdatedAt = now
-			slot.HashPrefix = hashPrefixes
-			slot.MaxLevelIdx = maxLevelIdx
+			slot.SimHash = newHash
 			slot.Username = username
 			m.moveToLRUEnd(idx)
 			return
@@ -158,7 +153,7 @@ func (m *ActiveTaskSlotManager) RecordTask(userID int, username string, data str
 		// 淘汰该用户最旧的槽
 		oldestIdx := m.findOldestUserSlot(userID)
 		if oldestIdx >= 0 {
-			m.reuseSlot(oldestIdx, userID, username, now, hashPrefixes, maxLevelIdx)
+			m.reuseSlot(oldestIdx, userID, username, now, newHash)
 			return
 		}
 	}
@@ -168,18 +163,17 @@ func (m *ActiveTaskSlotManager) RecordTask(userID int, username string, data str
 		// LRU 淘汰全局最旧的槽
 		if len(m.lruOrder) > 0 {
 			oldestIdx := m.lruOrder[0]
-			m.reuseSlot(oldestIdx, userID, username, now, hashPrefixes, maxLevelIdx)
+			m.reuseSlot(oldestIdx, userID, username, now, newHash)
 			return
 		}
 	}
 
 	// 3. 分配新槽
 	newSlot := &TaskSlot{
-		UserID:      userID,
-		Username:    username,
-		UpdatedAt:   now,
-		HashPrefix:  hashPrefixes,
-		MaxLevelIdx: maxLevelIdx,
+		UserID:    userID,
+		Username:  username,
+		UpdatedAt: now,
+		SimHash:   newHash,
 	}
 	newIdx := len(m.slots)
 	m.slots = append(m.slots, newSlot)
@@ -188,7 +182,7 @@ func (m *ActiveTaskSlotManager) RecordTask(userID int, username string, data str
 }
 
 // reuseSlot 复用一个槽
-func (m *ActiveTaskSlotManager) reuseSlot(idx int, newUserID int, username string, now int64, hashPrefixes [HashLevelCount][HashPrefixLen]byte, maxLevelIdx int) {
+func (m *ActiveTaskSlotManager) reuseSlot(idx int, newUserID int, username string, now int64, newHash uint64) {
 	oldSlot := m.slots[idx]
 	oldUserID := oldSlot.UserID
 
@@ -202,8 +196,7 @@ func (m *ActiveTaskSlotManager) reuseSlot(idx int, newUserID int, username strin
 	oldSlot.UserID = newUserID
 	oldSlot.Username = username
 	oldSlot.UpdatedAt = now
-	oldSlot.HashPrefix = hashPrefixes
-	oldSlot.MaxLevelIdx = maxLevelIdx
+	oldSlot.SimHash = newHash
 
 	m.moveToLRUEnd(idx)
 }

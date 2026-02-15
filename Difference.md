@@ -229,17 +229,18 @@
   - “重复”口径：visitor_id + ip 组合下 `COUNT(DISTINCT user_id) > 1` 才算重复（见 [`model.GetDuplicateVisitorIds()`](model/user_fingerprint.go:205) 的 `GROUP BY visitor_id, ip HAVING ...`）。
   - UI 面板（4 个字）：页面标题为 [`title={t('关联追踪')}`](web/src/pages/Fingerprint/index.jsx:384)，并提供“重复指纹/全部记录”两 tab（见 [`<Tabs ...>`](web/src/pages/Fingerprint/index.jsx:398)）。
  
-9. 【已实现】活跃任务槽追踪系统（全局 1000 / 单用户 50，上下文哈希匹配，LRU 淘汰）+ 600s 高活跃扫描入库 + 24h token 消耗查询
+9. 【已实现】活跃任务槽追踪系统（全局 1000 / 单用户 50，SimHash 相似匹配，LRU 淘汰）+ 600s 高活跃扫描入库 + 24h token 消耗查询
  
 - 原始需求（保留）：实现维护每个用户100个槽，储存在内存中，每个槽是一次哈希和时间的记录，在8,64,512...长度的多个哈希结果（每个仅保存6位）。每当遇到请求时，都先计算哈希并和槽进行比较，如果能继承，那么继承并覆盖，否则LRU占用新槽。接下来实现一个查询页面，展示用户在30秒内的活跃任务数（即槽数）feat: 活跃任务槽追踪系统 - 全局1000槽/单用户50槽上限，多级哈希匹配，LRU淘汰策略，管理员查询页面。添加功能：实现每600秒扫描一次，如果发现活跃任务数在5（600s）以上的记录到新表 可查询。实现记录的用户可点击查看其24小时内消耗的不同模型的多少token
  
-- 核心数据结构：内存槽 + 多级哈希前缀 + LRU
+- 核心数据结构：内存槽 + SimHash(64-bit) + LRU
   - 全局/单用户上限：[`MaxGlobalSlots`](model/active_task_slot.go:24)=1000、[`MaxUserSlots`](model/active_task_slot.go:26)=50（与需求文案一致）。
   - 活跃窗口：默认 30s（[`ActiveWindowSeconds`](model/active_task_slot.go:28)），排名 API 可调 `window`（见 [`controller.GetActiveTaskRankAPI()`](controller/active_task.go:22)）。
-  - 哈希层级：`8,64,512,4096,32768,131072`（见 [`hashLevels`](model/active_task_slot.go:35)），每级保存 `HashPrefixLen=16` 字节前缀（见 [`HashPrefixLen`](model/active_task_slot.go:30) 与 [`TaskSlot.HashPrefix`](model/active_task_slot.go:44)）。
-  - 计算方式：增量 sha256（见 [`computeHashPrefixes()`](model/active_task_slot.go:79)；只写入新增片段见 [`h.Write([]byte(data[prevEnd:end]))`](model/active_task_slot.go:95)）。
-  - 匹配策略：只比较“当前请求最高级往下 MatchLevelCount=2 个层级”（见 [`MatchLevelCount`](model/active_task_slot.go:41) 与 [`matchHashPrefix()`](model/active_task_slot.go:114)）。
-  - LRU 淘汰：每次命中/复用都会移动到 LRU 末尾（见 [`moveToLRUEnd()`](model/active_task_slot.go:244)）。
+  - 槽指纹：每槽保存一个 `SimHash uint64`（见 [`TaskSlot.SimHash`](model/active_task_slot.go:34)）。
+  - 相似匹配：当 `hamming(slot.SimHash, newHash) <= 5` 时继承同一槽，并用新指纹覆盖旧指纹（阈值常量见 [`SimHashThreshold`](model/active_task_slot.go:23)，匹配逻辑见 [`RecordTask()`](model/active_task_slot.go:115)）。
+  - 指纹计算：对原始 data（通常为原始请求体字符串）直接 `strings.Fields` 分词，按 token 计算 SimHash（见 [`simhash64()`](model/active_task_slot.go:67)）。
+  - 每次启动随机盐：token 哈希使用 `sha1(salt || token)`，salt 在进程启动时随机生成（见 [`simhashTokenSalt`](model/active_task_slot.go:34)、[`init()`](model/active_task_slot.go:36)、[`tokenHash64()`](model/active_task_slot.go:98)）。
+  - LRU 淘汰：匹配命中/复用都会移动到 LRU 末尾（见 [`moveToLRUEnd()`](model/active_task_slot.go:224)）。
  
 - 记录入口：从请求上下文抽取“可识别对话连续性”的数据
   - 只统计 chat 类请求：路径命中 `/chat/completions`、`/v1/completions`、`/v1/responses`、`/v1/messages`、Gemini `generateContent`（见 [`isChatRequest := ...`](model/active_task_slot.go:447)）。
