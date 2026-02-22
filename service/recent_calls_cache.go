@@ -21,7 +21,7 @@ const (
 
 	DefaultRecentCallsCapacity = 100
 
-	DefaultMaxRequestBodyBytes  = 64 << 10  // 64KiB
+	DefaultMaxRequestBodyBytes  = 8 << 20   // 8MiB
 	DefaultMaxResponseBodyBytes = 256 << 10 // 256KiB
 
 	DefaultMaxStreamChunkBytes = 8 << 10   // 8KiB
