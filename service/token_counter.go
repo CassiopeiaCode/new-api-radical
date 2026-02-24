@@ -9,8 +9,13 @@ import (
 	_ "image/png"
 	"log"
 	"math"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
@@ -22,6 +27,140 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+const (
+	tokenCalibratorSampleCap            = 10
+	tokenCalibratorMinChars             = 64
+	defaultTokenCalibratorSampleRate    = 0.01
+	defaultTokenCalibratorForceRealSecs = 300
+)
+
+var (
+	enableFastTikToken           = envBool("ENABLE_FAST_TIKTOKEN", true)
+	fastTikTokenSampleRate       = envFloatInRange("FAST_TIKTOKEN_SAMPLE_RATE", defaultTokenCalibratorSampleRate, 0, 1)
+	fastTikTokenForceRealEvery   = time.Duration(envInt("FAST_TIKTOKEN_FORCE_REAL_SECONDS", defaultTokenCalibratorForceRealSecs)) * time.Second
+	fastTikTokenPerModelPoolSize = tokenCalibratorSampleCap
+	openAITextTokenCalibrators   sync.Map // map[string]*tokenCalibrator, key is upstream model name
+)
+
+type tokenSample struct {
+	chars  int
+	tokens int
+}
+
+type tokenCalibrator struct {
+	mu           sync.Mutex
+	samples      [tokenCalibratorSampleCap]tokenSample
+	size         int
+	next         int
+	totalChars   int
+	totalTokens  int
+	lastRealUnix int64
+	probeCounter uint64
+}
+
+func (c *tokenCalibrator) addSample(chars int, tokens int) {
+	if chars < tokenCalibratorMinChars {
+		return
+	}
+	if c.size < fastTikTokenPerModelPoolSize {
+		c.samples[c.next] = tokenSample{chars: chars, tokens: tokens}
+		c.size++
+		c.next = (c.next + 1) % fastTikTokenPerModelPoolSize
+		c.totalChars += chars
+		c.totalTokens += tokens
+		return
+	}
+
+	old := c.samples[c.next]
+	c.totalChars -= old.chars
+	c.totalTokens -= old.tokens
+	c.samples[c.next] = tokenSample{chars: chars, tokens: tokens}
+	c.totalChars += chars
+	c.totalTokens += tokens
+	c.next = (c.next + 1) % fastTikTokenPerModelPoolSize
+}
+
+func (c *tokenCalibrator) updateReal(chars int, tokens int, now time.Time) {
+	c.lastRealUnix = now.Unix()
+	c.addSample(chars, tokens)
+}
+
+func (c *tokenCalibrator) ratio() float64 {
+	if c.totalChars <= 0 {
+		return 0
+	}
+	return float64(c.totalTokens) / float64(c.totalChars)
+}
+
+func (c *tokenCalibrator) shouldSample(sampleRate float64) bool {
+	if sampleRate <= 0 {
+		return false
+	}
+	if sampleRate >= 1 {
+		return true
+	}
+	period := uint64(math.Round(1.0 / sampleRate))
+	if period == 0 {
+		period = 1
+	}
+	n := atomic.AddUint64(&c.probeCounter, 1)
+	return n%period == 0
+}
+
+func envBool(key string, defaultValue bool) bool {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return defaultValue
+	}
+	switch strings.ToLower(val) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return defaultValue
+	}
+}
+
+func envInt(key string, defaultValue int) int {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
+}
+
+func envFloatInRange(key string, defaultValue float64, min float64, max float64) float64 {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return defaultValue
+	}
+	if parsed < min {
+		return min
+	}
+	if parsed > max {
+		return max
+	}
+	return parsed
+}
+
+func getModelTokenCalibrator(model string) *tokenCalibrator {
+	if v, ok := openAITextTokenCalibrators.Load(model); ok {
+		return v.(*tokenCalibrator)
+	}
+	cal := &tokenCalibrator{}
+	actual, _ := openAITextTokenCalibrators.LoadOrStore(model, cal)
+	return actual.(*tokenCalibrator)
+}
 
 func getImageToken(fileMeta *types.FileMeta, model string, stream bool) (int, error) {
 	if fileMeta == nil {
@@ -443,8 +582,56 @@ func CountTextToken(text string, model string) int {
 		return 0
 	}
 	if common.IsOpenAITextModel(model) {
-		tokenEncoder := getTokenEncoder(model)
-		return getTokenNum(tokenEncoder, text)
+		if !enableFastTikToken {
+			tokenEncoder := getTokenEncoder(model)
+			return getTokenNum(tokenEncoder, text)
+		}
+
+		chars := utf8.RuneCountInString(text)
+		cal := getModelTokenCalibrator(model)
+		now := time.Now()
+
+		cal.mu.Lock()
+		isPoolReady := cal.size >= fastTikTokenPerModelPoolSize && cal.totalChars > 0
+		lastRealUnix := cal.lastRealUnix
+		ratio := cal.ratio()
+		forceReal := false
+		if !isPoolReady {
+			forceReal = true
+		} else if fastTikTokenForceRealEvery > 0 {
+			lastReal := time.Unix(lastRealUnix, 0)
+			if lastRealUnix == 0 || now.Sub(lastReal) >= fastTikTokenForceRealEvery {
+				forceReal = true
+			}
+		}
+		needSampleReal := !forceReal && cal.shouldSample(fastTikTokenSampleRate)
+		cal.mu.Unlock()
+
+		if forceReal || needSampleReal {
+			tokenEncoder := getTokenEncoder(model)
+			tokensReal := getTokenNum(tokenEncoder, text)
+			if tokensReal < 0 {
+				tokensReal = 0
+			}
+			cal.mu.Lock()
+			cal.updateReal(chars, tokensReal, now)
+			cal.mu.Unlock()
+			return tokensReal
+		}
+
+		tokensEst := int(float64(chars) * ratio)
+		if tokensEst < 0 {
+			tokensEst = 0
+		}
+		maxTokens := chars * 4
+		if tokensEst > maxTokens {
+			tokensEst = maxTokens
+		}
+		// Fast path uses an approximate token count:
+		// 1) internal pre-consume accounting may slightly drift; and
+		// 2) some paths that locally backfill usage.prompt_tokens may fluctuate a bit.
+		// This is intentional for CPU priority, and the ratio is continuously corrected by real samples.
+		return tokensEst
 	} else {
 		// 非openai模型，使用tiktoken-go计算没有意义，使用估算节省资源
 		return EstimateTokenByModel(model, text)

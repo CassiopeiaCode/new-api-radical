@@ -290,3 +290,30 @@
   - 页面：[`SettingsCheckin`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:32)。
   - 开关字段：[`Form.Switch field={'checkin_setting.random_mode'}`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:127)，并在“启用签到功能”关闭时禁用（见 [`disabled={!inputs['checkin_setting.enabled']}`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:135)）。
   - 字段联动：随机模式下启用 `min_quota/max_quota`，固定模式下启用 `fixed_quota`（见 [`disabled ... isRandomMode`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:152) 与 [`disabled ... !isRandomMode`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:167)）。
+11. 【已实现】OpenAI 文本 token 统计 CPU 优化：抽样真实计数校准 + 字符倍率估算（CPU 优先）
+
+- 目标：降低 `CountTextToken` 触发 `tiktoken-go/regexp2` 的频率，在允许小幅 usage 波动前提下优先降低 CPU。
+- 修改位置：`service/token_counter.go`（仅改 `CountTextToken` 的 OpenAI 文本模型分支；非 OpenAI 分支保持 `EstimateTokenByModel` 不变）。
+
+- 实现细节：
+  - 新增按 `model` 维度的内存校准器（`sync.Map` + 每模型 `mutex`），样本池固定容量 10。
+  - 样本项为 `(chars,tokens)`；`chars` 使用 `utf8.RuneCountInString`。
+  - 比率采用稳健口径：`ratio = sum(tokens_i) / sum(chars_i)`。
+  - 短文本噪声过滤：`chars < 64` 不入池。
+  - 池未满时：每次真实计数并入池，返回真实 token。
+  - 池已满时：默认估算 `int(chars * ratio)` 返回；并进行 1% 抽样真实计数更新池（环形 FIFO 替换）。
+  - 低流量兜底：距离上次真实校准超过 300s 强制一次真实计数更新池。
+  - 估算结果夹逼：下限 0，上限 `chars*4`，避免异常倍率放大。
+
+- 并发与性能：
+  - 校准器结构线程安全：`sync.Map` 保存 `*tokenCalibrator`，每实例内部 `sync.Mutex`。
+  - 抽样计数使用轻量计数器（`atomic`）实现，估算路径仅 `RuneCount + 算术 + 少量状态读取`。
+
+- 行为说明（代码注释已加）：
+  - 本地快速路径为近似计数，会轻微影响内部预扣与部分回填给客户端的 `usage.prompt_tokens`。
+  - 该波动是有意设计，目标为 CPU 优先，并通过持续真实抽样自适应校准。
+
+- 可选环境变量：
+  - `ENABLE_FAST_TIKTOKEN`（默认 `true`）
+  - `FAST_TIKTOKEN_SAMPLE_RATE`（默认 `0.01`）
+  - `FAST_TIKTOKEN_FORCE_REAL_SECONDS`（默认 `300`）
