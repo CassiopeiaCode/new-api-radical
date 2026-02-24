@@ -14,7 +14,9 @@ import (
 )
 
 func SetWebRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
-	router.Use(gzip.Gzip(gzip.DefaultCompression))
+	if common.GetEnvOrDefaultBool("ENABLE_GIN_GZIP", false) {
+		router.Use(gzip.Gzip(gzip.BestSpeed))
+	}
 	router.Use(middleware.GlobalWebRateLimit())
 	router.Use(middleware.Cache())
 	router.Use(static.Serve("/", common.EmbedFolder(buildFS, "web/dist")))

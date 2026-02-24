@@ -317,3 +317,25 @@
   - `ENABLE_FAST_TIKTOKEN`（默认 `true`）
   - `FAST_TIKTOKEN_SAMPLE_RATE`（默认 `0.01`）
   - `FAST_TIKTOKEN_FORCE_REAL_SECONDS`（默认 `300`）
+
+12. 【已实现】应用层 gin gzip 增加环境开关（默认关闭，启用时 BestSpeed）
+
+- 目标：避免在上游 nginx 已压缩时，应用层 `gin-contrib/gzip` 继续占用 CPU（`compress/flate` 热点）。
+- 修改文件：
+  - `router/web-router.go`
+  - `router/api-router.go`
+  - `router/dashboard.go`
+
+- 行为变更：
+  - 默认不启用应用层 gzip（`ENABLE_GIN_GZIP` 默认 `false`）。
+  - 当 `ENABLE_GIN_GZIP=true` 时才注册 gzip middleware。
+  - 启用时压缩级别固定为 `gzip.BestSpeed`（避免误用高压缩等级导致 CPU 升高）。
+
+- 实现说明：
+  - 复用现有 `common.GetEnvOrDefaultBool`（定义在 `common/env.go`），未新增重复 env helper。
+  - 三处原先的 `gzip.DefaultCompression` 已改为条件注册 + `gzip.BestSpeed`。
+
+- 验证建议：
+  - 默认关闭：不设置 `ENABLE_GIN_GZIP`（或设为 `false`），直连应用端口 `curl -I`，应看不到应用层添加的 `Content-Encoding: gzip`。
+  - 开启：设置 `ENABLE_GIN_GZIP=true` 重启后，直连应用端口 `curl -I` 应出现 `Content-Encoding: gzip`。
+  - pprof：默认关闭后，`compress/flate.(*compressor).deflate/findMatch` 热点应显著下降。
