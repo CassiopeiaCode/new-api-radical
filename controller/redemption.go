@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
@@ -71,21 +72,18 @@ func AddRedemption(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-
 	if utf8.RuneCountInString(req.Name) == 0 || utf8.RuneCountInString(req.Name) > 20 {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "兑换码名称长度必须在1-20之间",
-		})
+		common.ApiErrorI18n(c, i18n.MsgRedemptionNameLength)
 		return
 	}
 
 	count := req.EffectiveCount()
 	if count <= 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "兑换码个数必须大于0",
-		})
+		common.ApiErrorI18n(c, i18n.MsgRedemptionCountPositive)
+		return
+	}
+	if count > 100 {
+		common.ApiErrorI18n(c, i18n.MsgRedemptionCountMax)
 		return
 	}
 
@@ -122,8 +120,8 @@ func AddRedemption(c *gin.Context) {
 		}
 	}
 
-	if err := validateExpiredTime(req.ExpiredTime); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+	if valid, msg := validateExpiredTime(c, req.ExpiredTime); !valid {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 		return
 	}
 
@@ -184,9 +182,10 @@ func AddRedemption(c *gin.Context) {
 		}
 		err = cleanRedemption.Insert()
 		if err != nil {
+			common.SysError("failed to insert redemption: " + err.Error())
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": err.Error(),
+				"message": i18n.T(c, i18n.MsgRedemptionCreateFailed),
 				"data":    keys,
 				"keys":    keys,
 			})
@@ -232,8 +231,8 @@ func UpdateRedemption(c *gin.Context) {
 		return
 	}
 	if statusOnly == "" {
-		if err := validateExpiredTime(redemption.ExpiredTime); err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		if valid, msg := validateExpiredTime(c, redemption.ExpiredTime); !valid {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 			return
 		}
 		// If you add more fields, please also update redemption.Update()
@@ -271,11 +270,11 @@ func DeleteInvalidRedemption(c *gin.Context) {
 	return
 }
 
-func validateExpiredTime(expired int64) error {
+func validateExpiredTime(c *gin.Context, expired int64) (bool, string) {
 	if expired != 0 && expired < common.GetTimestamp() {
-		return errors.New("过期时间不能早于当前时间")
+		return false, i18n.T(c, i18n.MsgRedemptionExpireTimeInvalid)
 	}
-	return nil
+	return true, ""
 }
 
 func cryptoRandIntInclusive(min int, max int) (int, error) {

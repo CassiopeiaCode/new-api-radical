@@ -10,6 +10,7 @@ import (
 
 func SetDashboardRouter(router *gin.Engine) {
 	apiRouter := router.Group("/")
+	apiRouter.Use(middleware.RouteTag("old_api"))
 	if common.GetEnvOrDefaultBool("ENABLE_GIN_GZIP", false) {
 		apiRouter.Use(gzip.Gzip(gzip.BestSpeed))
 	}

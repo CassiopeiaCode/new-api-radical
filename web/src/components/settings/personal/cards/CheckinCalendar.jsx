@@ -27,6 +27,7 @@ import {
   Spin,
   Tooltip,
   Collapsible,
+  Modal,
 } from '@douyinfe/semi-ui';
 import {
   CalendarCheck,
@@ -35,11 +36,14 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import Turnstile from 'react-turnstile';
 import { API, showError, showSuccess, renderQuota } from '../../../../helpers';
 
-const CheckinCalendar = ({ t, status }) => {
+const CheckinCalendar = ({ t, status, turnstileEnabled, turnstileSiteKey }) => {
   const [loading, setLoading] = useState(false);
   const [checkinLoading, setCheckinLoading] = useState(false);
+  const [turnstileModalVisible, setTurnstileModalVisible] = useState(false);
+  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0);
   const [checkinData, setCheckinData] = useState({
     enabled: false,
     stats: {
@@ -53,8 +57,10 @@ const CheckinCalendar = ({ t, status }) => {
   const [currentMonth, setCurrentMonth] = useState(
     new Date().toISOString().slice(0, 7),
   );
-  // 折叠状态：如果已签到则默认折叠
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  // 初始加载状态，用于避免折叠状态闪烁
+  const [initialLoaded, setInitialLoaded] = useState(false);
+  // 折叠状态：null 表示未确定（等待首次加载）
+  const [isCollapsed, setIsCollapsed] = useState(null);
 
   // 创建日期到额度的映射，方便快速查找
   const checkinRecordsMap = useMemo(() => {
@@ -77,27 +83,53 @@ const CheckinCalendar = ({ t, status }) => {
 
   // 获取签到状态
   const fetchCheckinStatus = async (month) => {
+    const isFirstLoad = !initialLoaded;
     setLoading(true);
     try {
       const res = await API.get(`/api/user/checkin?month=${month}`);
       const { success, data, message } = res.data;
       if (success) {
         setCheckinData(data);
+        // 首次加载时，根据签到状态设置折叠状态
+        if (isFirstLoad) {
+          setIsCollapsed(data.stats?.checked_in_today ?? false);
+          setInitialLoaded(true);
+        }
       } else {
         showError(message || t('获取签到状态失败'));
+        if (isFirstLoad) {
+          setIsCollapsed(false);
+          setInitialLoaded(true);
+        }
       }
     } catch (error) {
       showError(t('获取签到状态失败'));
+      if (isFirstLoad) {
+        setIsCollapsed(false);
+        setInitialLoaded(true);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // 执行签到
-  const doCheckin = async () => {
+  const postCheckin = async (token) => {
+    const url = token
+      ? `/api/user/checkin?turnstile=${encodeURIComponent(token)}`
+      : '/api/user/checkin';
+    return API.post(url);
+  };
+
+  const shouldTriggerTurnstile = (message) => {
+    if (!turnstileEnabled) return false;
+    if (typeof message !== 'string') return true;
+    return message.includes('Turnstile');
+  };
+
+  const doCheckin = async (token) => {
     setCheckinLoading(true);
     try {
-      const res = await API.post('/api/user/checkin');
+      const res = await postCheckin(token);
       const { success, data, message } = res.data;
       if (success) {
         showSuccess(
@@ -105,7 +137,19 @@ const CheckinCalendar = ({ t, status }) => {
         );
         // 刷新签到状态
         fetchCheckinStatus(currentMonth);
+        setTurnstileModalVisible(false);
       } else {
+        if (!token && shouldTriggerTurnstile(message)) {
+          if (!turnstileSiteKey) {
+            showError('Turnstile is enabled but site key is empty.');
+            return;
+          }
+          setTurnstileModalVisible(true);
+          return;
+        }
+        if (token && shouldTriggerTurnstile(message)) {
+          setTurnstileWidgetKey((v) => v + 1);
+        }
         showError(message || t('签到失败'));
       }
     } catch (error) {
@@ -121,15 +165,6 @@ const CheckinCalendar = ({ t, status }) => {
       fetchCheckinStatus(currentMonth);
     }
   }, [status?.checkin_enabled, currentMonth]);
-
-  // 当签到状态加载完成后，根据是否已签到设置折叠状态
-  useEffect(() => {
-    if (checkinData.stats?.checked_in_today) {
-      setIsCollapsed(true);
-    } else {
-      setIsCollapsed(false);
-    }
-  }, [checkinData.stats?.checked_in_today]);
 
   // 如果签到功能未启用，不显示组件
   if (!status?.checkin_enabled) {
@@ -178,6 +213,30 @@ const CheckinCalendar = ({ t, status }) => {
 
   return (
     <Card className='!rounded-2xl'>
+      <Modal
+        title='Security Check'
+        visible={turnstileModalVisible}
+        footer={null}
+        centered
+        onCancel={() => {
+          setTurnstileModalVisible(false);
+          setTurnstileWidgetKey((v) => v + 1);
+        }}
+      >
+        <div className='flex justify-center py-2'>
+          <Turnstile
+            key={turnstileWidgetKey}
+            sitekey={turnstileSiteKey}
+            onVerify={(token) => {
+              doCheckin(token);
+            }}
+            onExpire={() => {
+              setTurnstileWidgetKey((v) => v + 1);
+            }}
+          />
+        </div>
+      </Modal>
+
       {/* 卡片头部 */}
       <div className='flex items-center justify-between'>
         <div
@@ -199,11 +258,13 @@ const CheckinCalendar = ({ t, status }) => {
               )}
             </div>
             <div className='text-xs text-gray-500 dark:text-gray-400'>
-              {checkinData.stats?.checked_in_today
-                ? t('今日已签到，累计签到') +
-                  ` ${checkinData.stats?.total_checkins || 0} ` +
-                  t('天')
-                : t('每日签到可获得额度奖励')}
+              {!initialLoaded
+                ? t('正在加载签到状态...')
+                : checkinData.stats?.checked_in_today
+                  ? t('今日已签到，累计签到') +
+                    ` ${checkinData.stats?.total_checkins || 0} ` +
+                    t('天')
+                  : t('每日签到可获得额度奖励')}
             </div>
           </div>
         </div>
@@ -211,19 +272,21 @@ const CheckinCalendar = ({ t, status }) => {
           type='primary'
           theme='solid'
           icon={<Gift size={16} />}
-          onClick={doCheckin}
-          loading={checkinLoading}
-          disabled={checkinData.stats?.checked_in_today}
+          onClick={() => doCheckin()}
+          loading={checkinLoading || !initialLoaded}
+          disabled={!initialLoaded || checkinData.stats?.checked_in_today}
           className='!bg-green-600 hover:!bg-green-700'
         >
-          {checkinData.stats?.checked_in_today
-            ? t('今日已签到')
-            : t('立即签到')}
+          {!initialLoaded
+            ? t('加载中...')
+            : checkinData.stats?.checked_in_today
+              ? t('今日已签到')
+              : t('立即签到')}
         </Button>
       </div>
 
       {/* 可折叠内容 */}
-      <Collapsible isOpen={!isCollapsed} keepDOM>
+      <Collapsible isOpen={isCollapsed === false} keepDOM>
         {/* 签到统计 */}
         <div className='grid grid-cols-3 gap-3 mb-4 mt-4'>
           <div className='text-center p-2.5 bg-slate-50 dark:bg-slate-800 rounded-lg'>
