@@ -69,6 +69,7 @@ export default function SettingsSidebarModulesAdmin(props) {
       redemption: true,
       user: true,
       fingerprint: true,
+      subscription: true,
       setting: true,
     },
   });
@@ -133,6 +134,7 @@ export default function SettingsSidebarModulesAdmin(props) {
         redemption: true,
         user: true,
         fingerprint: true,
+        subscription: true,
         setting: true,
       },
     };
@@ -205,6 +207,7 @@ export default function SettingsSidebarModulesAdmin(props) {
             redemption: true,
             user: true,
             fingerprint: true,
+            subscription: true,
             setting: true,
           },
         };
@@ -264,10 +267,31 @@ export default function SettingsSidebarModulesAdmin(props) {
       modules: [
         { key: 'channel', title: t('渠道管理'), description: t('API渠道配置') },
         { key: 'models', title: t('模型管理'), description: t('AI模型配置') },
-        { key: 'model_health', title: t('模型健康度'), description: t('模型健康状态监控') },
-        { key: 'active_task_rank', title: t('活跃任务'), description: t('用户活跃任务数监控') },
-        { key: 'recent_calls', title: t('最近调用'), description: t('最近API调用记录') },
-        { key: 'deployment', title: t('模型部署'), description: t('模型部署管理') },
+        {
+          key: 'model_health',
+          title: t('模型健康度'),
+          description: t('模型健康状态监控'),
+        },
+        {
+          key: 'active_task_rank',
+          title: t('活跃任务'),
+          description: t('用户活跃任务数监控'),
+        },
+        {
+          key: 'recent_calls',
+          title: t('最近调用'),
+          description: t('最近API调用记录'),
+        },
+        {
+          key: 'deployment',
+          title: t('模型部署'),
+          description: t('模型部署管理'),
+        },
+        {
+          key: 'subscription',
+          title: t('订阅管理'),
+          description: t('订阅套餐管理'),
+        },
         {
           key: 'redemption',
           title: t('兑换码管理'),
