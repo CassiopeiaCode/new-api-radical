@@ -214,7 +214,7 @@
   - 写入入口：[`controller.RecordFingerprint()`](controller/fingerprint.go:16) 读取 `visitor_id`（[`RecordFingerprintRequest`](controller/fingerprint.go:11)），并取 `User-Agent` 与 [`c.ClientIP()`](controller/fingerprint.go:35) 一起入库。
   - 数据表：[`model.UserFingerprint`](model/user_fingerprint.go:10) 映射表名 `user_fingerprints`（[`TableName()`](model/user_fingerprint.go:20)）。
   - 去重逻辑：后端使用 upsert，按 `(user_id, visitor_id, ip)` 组合去重；命中则更新 `user_agent/updated_at`（实现见 [`model.RecordFingerprint()`](model/user_fingerprint.go:25)）。
-  - 保留 5 条：超过 5 个 `ip + visitor_id` 组合记录时，删除第 6 条之后的旧记录（见 [`model.RecordFingerprint()`](model/user_fingerprint.go:25) 的 `Offset(5)` 清理逻辑）。
+  - 保留 5 条：超过 5 个 `ip + visitor_id` 组合记录时，先取第 5 条的 `(updated_at,id)` 作为阈值，再删除更旧的记录（避免 MySQL 下出现仅 `OFFSET` 无 `LIMIT` 的非法 SQL；实现见 [`model.RecordFingerprint()`](model/user_fingerprint.go:25)）。
   - MySQL 迁移：项目启动时会执行 [`DB.AutoMigrate()`](model/main.go:251)，并会尝试创建复合唯一索引 `ux_user_fingerprints_user_visitor_ip`（见 [`model.UserFingerprint`](model/user_fingerprint.go:10) 的 `uniqueIndex` tag），以保证并发下按 `(user_id, visitor_id, ip)` 组合去重正确。
   - 若你是“存量库迁移”且线上账号无建索引权限/或 AutoMigrate 未生效，请手动补该索引（否则可能产生重复行，导致“保留 5 条”失真）：
     ```sql

@@ -19,6 +19,7 @@ tiktoken_cache
 .gocache
 .gomodcache/
 .cache
+.tmp/
 web/bun.lock
 plans
 

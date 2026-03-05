@@ -1,9 +1,11 @@
 package model
 
 import (
+	"errors"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -53,19 +55,32 @@ func RecordFingerprint(userId int, visitorId string, userAgent string, ip string
 
 	// 统计该用户组合记录数量（唯一约束存在时，行数即组合数）
 	var count int64
-	DB.Model(&UserFingerprint{}).Where("user_id = ?", userId).Count(&count)
+	if err := DB.Model(&UserFingerprint{}).Where("user_id = ?", userId).Count(&count).Error; err != nil {
+		return err
+	}
 
 	// 如果超过5条，删除最旧的记录
 	if count > 5 {
-		var oldRecords []UserFingerprint
-		DB.Select("id").Where("user_id = ?", userId).Order("updated_at desc, id desc").Offset(5).Find(&oldRecords)
-
-		if len(oldRecords) > 0 {
-			ids := make([]int, 0, len(oldRecords))
-			for _, r := range oldRecords {
-				ids = append(ids, r.Id)
+		var fifth UserFingerprint
+		err := DB.
+			Select("id, updated_at").
+			Where("user_id = ?", userId).
+			Order("updated_at desc, id desc").
+			Offset(4).
+			Limit(1).
+			Take(&fifth).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
 			}
-			DB.Delete(&UserFingerprint{}, ids)
+			return err
+		}
+
+		if err := DB.
+			Where("user_id = ?", userId).
+			Where("(updated_at < ?) OR (updated_at = ? AND id < ?)", fifth.UpdatedAt, fifth.UpdatedAt, fifth.Id).
+			Delete(&UserFingerprint{}).Error; err != nil {
+			return err
 		}
 	}
 
