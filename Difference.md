@@ -99,22 +99,23 @@
 - 原始需求（保留）：实现生成随机兑换码（输入最小值和最大值，以及其他普通兑换码具有的字段，并且支持设置生成的兑换码前缀，生成随机的兑换码并提供文件下载），实现后端和对应前端
 
 - 后端：随机 Key 生成（前缀 + 随机字符串，最大长度 32）
-  - 最大长度常量：[`redemptionKeyMaxLength`](controller/redemption.go:65)=32。
-  - 前缀输入：请求体字段 `key_prefix`（[`dto.CreateRedemptionRequest.KeyPrefix`](dto/redemption.go:12)），后端在 [`AddRedemption()`](controller/redemption.go:67) 里 `strings.TrimSpace()`（见 [`keyPrefix := strings.TrimSpace(req.KeyPrefix)`](controller/redemption.go:131)）。
-  - 前缀长度保护：至少留 8 位随机段（[`minRandomLength`](controller/redemption.go:134)=8），若前缀过长直接返回错误（见 [`prefixLen > redemptionKeyMaxLength-minRandomLength`](controller/redemption.go:136)）。
-  - 随机段长度：`randomLength := redemptionKeyMaxLength - prefixLen`（[`randomLength`](controller/redemption.go:145)），然后调用 [`common.GenerateRandomCharsKey()`](controller/redemption.go:149) 生成随机字符串并拼接成最终 key（[`key := keyPrefix + randomPart`](controller/redemption.go:159)）。
+  - 最大长度常量：[`redemptionKeyMaxLength`](controller/redemption.go:66)=32。
+  - 前缀输入：请求体字段 `key_prefix`（[`dto.CreateRedemptionRequest.KeyPrefix`](dto/redemption.go:12)），后端在 [`AddRedemption()`](controller/redemption.go:69) 里 `strings.TrimSpace()`（见 [`keyPrefix := strings.TrimSpace(req.KeyPrefix)`](controller/redemption.go:130)）。
+  - 前缀长度保护：至少留 8 位随机段（[`minRandomLength`](controller/redemption.go:133)=8），若前缀过长直接返回错误（见 [`prefixLen > redemptionKeyMaxLength-minRandomLength`](controller/redemption.go:135)）。
+  - 随机段长度：`randomLength := redemptionKeyMaxLength - prefixLen`（[`randomLength`](controller/redemption.go:144)），然后调用 [`common.GenerateRandomCharsKey()`](controller/redemption.go:148) 生成随机字符串并拼接成最终 key（[`key := keyPrefix + randomPart`](controller/redemption.go:158)）。
 
 - 后端：随机额度区间（min/max）与兼容逻辑
   - DTO 字段：[`dto.CreateRedemptionRequest.RandomQuotaEnabled`](dto/redemption.go:15)、[`dto.CreateRedemptionRequest.QuotaMin`](dto/redemption.go:16)、[`dto.CreateRedemptionRequest.QuotaMax`](dto/redemption.go:17)。
   - 模式判断：[`dto.CreateRedemptionRequest.RandomQuotaMode()`](dto/redemption.go:27) 兼容两种开启方式：
     - `random_quota_enabled=true`
     - 或者同时提供 `quota_min` + `quota_max`
-  - 校验逻辑：在 [`AddRedemption()`](controller/redemption.go:67) 里，随机额度模式要求 `quota_min/quota_max` 必填、>0、且 `min <= max`（见 [`req.RandomQuotaMode()`](controller/redemption.go:93) 分支）。
-  - 随机取值：每个兑换码独立生成额度，使用加密随机数函数 [`cryptoRandIntInclusive()`](controller/redemption.go:281) 在 `[min,max]` 之间取整（见 [`randomQuota, err := cryptoRandIntInclusive(...)`](controller/redemption.go:164)）。
+  - 校验逻辑：在 [`AddRedemption()`](controller/redemption.go:69) 里，随机额度模式要求 `quota_min/quota_max` 必填、>0、且 `min <= max`（见 [`req.RandomQuotaMode()`](controller/redemption.go:92) 分支）。
+  - 随机取值：每个兑换码独立生成额度，使用加密随机数函数 [`cryptoRandIntInclusive()`](controller/redemption.go:281) 在 `[min,max]` 之间取整（见 [`randomQuota, err := cryptoRandIntInclusive(...)`](controller/redemption.go:163)）。
 
 - 后端：批量生成与返回（用于前端下载）
-  - 生成数量：[`dto.CreateRedemptionRequest.EffectiveCount()`](dto/redemption.go:20) 对 `count<=0` 做兼容（默认 1）；在 [`AddRedemption()`](controller/redemption.go:67) 里使用 `count := req.EffectiveCount()`（[`count`](controller/redemption.go:83)）。
-  - 批量生成：循环 `count` 次构造 [`model.Redemption`](controller/redemption.go:177) 并 `Insert()`（[`cleanRedemption.Insert()`](controller/redemption.go:185)）；成功 key 追加到 `keys`（[`keys = append(keys, key)`](controller/redemption.go:195)）。
+  - 生成数量：[`dto.CreateRedemptionRequest.EffectiveCount()`](dto/redemption.go:20) 对 `count<=0` 做兼容（默认 1）；在 [`AddRedemption()`](controller/redemption.go:69) 里使用 `count := req.EffectiveCount()`（[`count`](controller/redemption.go:81)）。
+  - 单次生成上限：后端校验 `count <= 100000`（见 [`redemptionBulkCreateMaxCount`](controller/redemption.go:67) 与 [`count > redemptionBulkCreateMaxCount`](controller/redemption.go:86)）。
+  - 批量生成：循环 `count` 次构造 [`model.Redemption`](controller/redemption.go:176) 并 `Insert()`（[`cleanRedemption.Insert()`](controller/redemption.go:184)）；成功 key 追加到 `keys`（[`keys = append(keys, key)`](controller/redemption.go:195)）。
   - 返回格式：创建成功时 `data/keys` 都返回 `[]string`（见 [`"data": keys, "keys": keys`](controller/redemption.go:201)），前端可直接拿到列表用于下载 txt。
 
 - 前端：表单字段与下载（创建成功后弹窗确认并下载）

@@ -64,6 +64,7 @@ func GetRedemption(c *gin.Context) {
 }
 
 const redemptionKeyMaxLength = 32
+const redemptionBulkCreateMaxCount = 100000
 
 func AddRedemption(c *gin.Context) {
 	req := dto.CreateRedemptionRequest{}
@@ -82,7 +83,7 @@ func AddRedemption(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgRedemptionCountPositive)
 		return
 	}
-	if count > 100 {
+	if count > redemptionBulkCreateMaxCount {
 		common.ApiErrorI18n(c, i18n.MsgRedemptionCountMax)
 		return
 	}
