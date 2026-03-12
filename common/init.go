@@ -33,7 +33,9 @@ func InitEnv() {
 
 	envVersion := os.Getenv("VERSION")
 	if envVersion != "" {
-		Version = envVersion
+		envVersion = strings.ReplaceAll(envVersion, "\r\n", "\n")
+		firstLine, _, _ := strings.Cut(envVersion, "\n")
+		Version = strings.TrimSpace(firstLine)
 	}
 
 	if *PrintVersion {

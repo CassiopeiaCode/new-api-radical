@@ -207,6 +207,10 @@
 - 【新增】前端自定义 JS 注入（环境变量，逗号分隔，按顺序 defer 注入）
   - 环境变量：`CUSTOM_JS_URLS=https://example.com/a.js,https://example.com/b.js`
   - 注入点：后端启动时替换 `web/dist/index.html` 的占位符 `<!--custom-js-->`（见 [`InjectCustomJavascripts()`](main.go:186) 与 [`<!--custom-js-->`](web/index.html:16)）
+
+- 【修复】`X-New-Api-Version` 只取 `VERSION` 的第一行，避免多行内容导致响应头异常
+  - 响应头写入：[`middleware.PoweredBy()`](middleware/cors.go:18) 写入 `common.Version`
+  - 版本解析：[`common.InitEnv()`](common/init.go:31) 从环境变量 `VERSION` 取第一行并 `TrimSpace`
  
 8. 【已实现】接入 FingerprintJS：记录用户最近 5 次去重 visitor id + ip（按 ip+visitor_id 去重）+ 管理员查询同 visitor id 用户（工作台面板“关联追踪”）
   
