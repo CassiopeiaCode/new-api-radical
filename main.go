@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"os"
@@ -182,6 +183,7 @@ func main() {
 
 	InjectUmamiAnalytics()
 	InjectGoogleAnalytics()
+	InjectCustomJavascripts()
 
 	// 设置路由
 	router.SetRouter(server, buildFS, indexPage)
@@ -238,6 +240,25 @@ func InjectGoogleAnalytics() {
 	analyticsInjectBuilder.WriteString("<!--Google Analytics QuantumNous-->\n")
 	analyticsInject := analyticsInjectBuilder.String()
 	indexPage = bytes.ReplaceAll(indexPage, []byte("<!--Google Analytics-->\n"), []byte(analyticsInject))
+}
+
+func InjectCustomJavascripts() {
+	analyticsInjectBuilder := &strings.Builder{}
+	customJsUrls := os.Getenv("CUSTOM_JS_URLS")
+	if customJsUrls != "" {
+		for _, rawUrl := range strings.Split(customJsUrls, ",") {
+			jsUrl := strings.TrimSpace(rawUrl)
+			if jsUrl == "" {
+				continue
+			}
+			analyticsInjectBuilder.WriteString("<script defer src=\"")
+			analyticsInjectBuilder.WriteString(html.EscapeString(jsUrl))
+			analyticsInjectBuilder.WriteString("\"></script>")
+		}
+	}
+	analyticsInjectBuilder.WriteString("<!--Custom JS QuantumNous-->\n")
+	analyticsInject := analyticsInjectBuilder.String()
+	indexPage = bytes.ReplaceAll(indexPage, []byte("<!--custom-js-->\n"), []byte(analyticsInject))
 }
 
 func InitResources() error {

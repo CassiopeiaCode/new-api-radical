@@ -189,20 +189,24 @@
   - 消费日志：[`model.RecordConsumeLog()`](model/log.go:158) 同样对 `Ip` 字段直接取 [`c.ClientIP()`](model/log.go:181)。
   - 结论：无论用户 `record_ip_log` 设为 true/false，只要请求具备 gin context，日志表 `logs.ip` 都会被写入（满足“强制记录 IP”）。
  
-7. 【已实现】[`web/public/oauth-redirect.html`](web/public/oauth-redirect.html:1) 多站点 OAuth 重定向回调页（回调需先跳到该页）
+7. 【已实现】[`web/public/oauth-redirect-linuxdo.html`](web/public/oauth-redirect-linuxdo.html:1) 多站点 OAuth 重定向回调页（回调需先跳到该页）
  
-- 原始需求（保留）：web\public\oauth-redirect.html 多站点重定向登录 回调需跳到该页否则会出错
+- 原始需求（保留）：web\public\oauth-redirect-linuxdo.html 多站点重定向登录 回调需跳到该页否则会出错
  
 - 设计目标：在“第三方 OAuth 回调域名固定/受限”的情况下，把回调落到当前站点的静态页，再安全跳回发起登录的原站点
-  - 解析参数：从 querystring 读取 `code/state/error`（见 [`const code = params.get('code')`](web/public/oauth-redirect.html:148) 与 [`const finalState = params.get('state')`](web/public/oauth-redirect.html:149)）。
-  - 错误兜底：若 `error` 存在，直接展示失败状态并停止跳转（见 [`if (error) { ... ui.showError(...) }`](web/public/oauth-redirect.html:153)）。
-  - 必要参数校验：缺少 `code/state` 直接报错（见 [`if (!code || !finalState)`](web/public/oauth-redirect.html:160)）。
+  - 解析参数：从 querystring 读取 `code/state/error`（见 [`const code = params.get('code')`](web/public/oauth-redirect-linuxdo.html:148) 与 [`const finalState = params.get('state')`](web/public/oauth-redirect-linuxdo.html:149)）。
+  - 错误兜底：若 `error` 存在，直接展示失败状态并停止跳转（见 [`if (error) { ... ui.showError(...) }`](web/public/oauth-redirect-linuxdo.html:153)）。
+  - 必要参数校验：缺少 `code/state` 直接报错（见 [`if (!code || !finalState)`](web/public/oauth-redirect-linuxdo.html:160)）。
  
 - “多站点”实现：把 origin 域名编码进 `state`，回调时解码后拼接跳转 URL
-  - state 编码结构：`baseState|b64(originDomain)`（解码逻辑见 [`const parts = finalState.split('|')`](web/public/oauth-redirect.html:166) 与 [`const originDomain = atob(encodedDomain)`](web/public/oauth-redirect.html:178)）。
-  - 构造跳转目标：使用当前协议 + 解码出的域名，拼回业务回调路径（见 [`redirectUrl = \`${protocol}//${originDomain}/oauth/linuxdo?code=${code}&state=${baseState}\``](web/public/oauth-redirect.html:184)）。
-  - 无域名信息兜底：`state` 不带 `|` 时，退回“本域名”直接跳 `/oauth/linuxdo`（见 [`redirectUrl = \`/oauth/linuxdo?code=${code}&state=${finalState}\``](web/public/oauth-redirect.html:171)）。
-  - 体验：延迟 800ms 让用户看到“授权成功/目标域名”（见 [`setTimeout(..., 800)`](web/public/oauth-redirect.html:192)）。
+  - state 编码结构：`baseState|b64(originDomain)`（解码逻辑见 [`const parts = finalState.split('|')`](web/public/oauth-redirect-linuxdo.html:166) 与 [`const originDomain = atob(encodedDomain)`](web/public/oauth-redirect-linuxdo.html:178)）。
+  - 构造跳转目标：使用当前协议 + 解码出的域名，拼回业务回调路径（见 [`redirectUrl = \`${protocol}//${originDomain}/oauth/linuxdo?code=${code}&state=${baseState}\``](web/public/oauth-redirect-linuxdo.html:184)）。
+  - 无域名信息兜底：`state` 不带 `|` 时，退回“本域名”直接跳 `/oauth/linuxdo`（见 [`redirectUrl = \`/oauth/linuxdo?code=${code}&state=${finalState}\``](web/public/oauth-redirect-linuxdo.html:171)）。
+  - 体验：延迟 800ms 让用户看到“授权成功/目标域名”（见 [`setTimeout(..., 800)`](web/public/oauth-redirect-linuxdo.html:192)）。
+
+- 【新增】前端自定义 JS 注入（环境变量，逗号分隔，按顺序 defer 注入）
+  - 环境变量：`CUSTOM_JS_URLS=https://example.com/a.js,https://example.com/b.js`
+  - 注入点：后端启动时替换 `web/dist/index.html` 的占位符 `<!--custom-js-->`（见 [`InjectCustomJavascripts()`](main.go:186) 与 [`<!--custom-js-->`](web/index.html:16)）
  
 8. 【已实现】接入 FingerprintJS：记录用户最近 5 次去重 visitor id + ip（按 ip+visitor_id 去重）+ 管理员查询同 visitor id 用户（工作台面板“关联追踪”）
   

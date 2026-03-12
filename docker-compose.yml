@@ -38,7 +38,8 @@ services:
 #      - GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX  # Google Analytics 的测量 ID (Google Analytics Measurement ID)
 #      - UMAMI_WEBSITE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  # Umami 网站 ID (Umami Website ID)
 #      - UMAMI_SCRIPT_URL=https://analytics.umami.is/script.js  # Umami 脚本 URL，默认为官方地址 (Umami Script URL, defaults to official URL)
-
+#      - CUSTOM_JS_URLS=https://example.com/a.js,https://example.com/b.js  # 逗号分隔的自定义 JS 列表，按顺序以 <script defer> 注入前端 (Comma-separated, injected in order via <script defer>)
+ 
     depends_on:
       - redis
       - postgres
