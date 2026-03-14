@@ -353,3 +353,14 @@
   - 默认关闭：不设置 `ENABLE_GIN_GZIP`（或设为 `false`），直连应用端口 `curl -I`，应看不到应用层添加的 `Content-Encoding: gzip`。
   - 开启：设置 `ENABLE_GIN_GZIP=true` 重启后，直连应用端口 `curl -I` 应出现 `Content-Encoding: gzip`。
   - pprof：默认关闭后，`compress/flate.(*compressor).deflate/findMatch` 热点应显著下降。
+
+13. 【已实现】CPU 驱动的自适应重试延时（env 开关，0~1s 动态调节）
+
+- 目标：在上游/自身高负载时自动“变慢”重试，降低瞬时并发与 CPU/IO 压力，避免重试风暴。
+- 行为：当启用后，系统监控每次采样 CPU 使用率时：
+  - 若 `cpu > threshold`：重试间隔 `+10ms`
+  - 若 `cpu <= threshold`：重试间隔 `-10ms`
+  - 间隔范围限制为 `[0, 1s]`；仅在 **发生重试** 时，才会在两次尝试之间 sleep。
+- 配置（环境变量）：
+  - `RETRY_DELAY_ADAPTIVE_ENABLED`（默认 `false`）
+  - `RETRY_DELAY_CPU_THRESHOLD`（默认 `50`，取值 0~100）

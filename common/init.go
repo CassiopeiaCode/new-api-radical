@@ -99,6 +99,14 @@ func InitEnv() {
 	requestInterval, _ = strconv.Atoi(os.Getenv("POLLING_INTERVAL"))
 	RequestInterval = time.Duration(requestInterval) * time.Second
 
+	// Adaptive retry delay (CPU-driven, env controlled)
+	adaptiveEnabled := GetEnvOrDefaultBool("RETRY_DELAY_ADAPTIVE_ENABLED", false)
+	adaptiveCPUThreshold := GetEnvOrDefault("RETRY_DELAY_CPU_THRESHOLD", 50)
+	SetAdaptiveRetryDelayConfig(AdaptiveRetryDelayConfig{
+		Enabled:      adaptiveEnabled,
+		CPUThreshold: adaptiveCPUThreshold,
+	})
+
 	// Initialize variables with GetEnvOrDefault
 	SyncFrequency = GetEnvOrDefault("SYNC_FREQUENCY", 60)
 	BatchUpdateInterval = GetEnvOrDefault("BATCH_UPDATE_INTERVAL", 5)
