@@ -68,23 +68,24 @@
 
 - 原始需求（保留）：实现缓存最近100次API调用的请求和返回信息到内存里（包括报错，记录客户端原始请求和上游原始响应（包括上游原始流式响应）），提供UI查阅，实现后端和对应前端，设计数据结构和新表实现良好性能
 
-- 后端：内存环形缓存结构（容量=100，按请求 id 覆盖）
+- 后端：内存环形缓存（只存 meta）+ 临时文件存全文（容量=100，按请求 id 覆盖）
   - 单例与容量：[`service.RecentCallsCache()`](service/recent_calls_cache.go:116) 返回全局单例，默认容量 [`DefaultRecentCallsCapacity`](service/recent_calls_cache.go:22)=100。
-  - 环形缓冲实现：[`type recentCallsCache`](service/recent_calls_cache.go:97) 维护 `buffer []*RecentCallRecord` + `nextID atomic.Uint64`；写入位置由 `idx := int(rec.ID % capacity)` 决定（见 [`(*recentCallsCache).put()`](service/recent_calls_cache.go:437)），天然只保留最近 N 条。
-  - 记录结构：[`service.RecentCallRecord`](service/recent_calls_cache.go:80) 包含 `UserID/ChannelID/ModelName/Request/Response/Stream/Error`，覆盖“客户端原始请求 + 上游原始响应 + 上游原始流式响应 + 报错”。
+  - 环形缓冲实现：[`type recentCallsCache`](service/recent_calls_cache.go:97) 维护 `buffer []*recentCallEntry` + `nextID atomic.Uint64`；写入位置由 `idx := int(id % capacity)` 决定（见 [`(*recentCallsCache).put()`](service/recent_calls_cache.go:500)），天然只保留最近 N 条。
+  - “只存 meta”：内存里只保留 `RecentCallRecord` 的 headers/status/flags 等元信息；`request.body / response.body / stream.chunks / stream.aggregated_text` 写入临时文件后按需读回（返回 API 时仍是完整字段）。
+  - 临时目录：使用 `os.TempDir()` 下的进程 session 临时目录（前缀 `new-api-recent-calls-*`），启动时会清理旧 session 目录，确保严格最多保留 100 条对应文件。
 
 - 后端：记录入口（请求开始 / 非流式响应 / 流式 chunk / 错误）
   - 请求开始（记录客户端原始请求）：[`(*recentCallsCache).BeginFromContext()`](service/recent_calls_cache.go:143)
     - 用户/渠道从 context 取：[`constant.ContextKeyUserId`](service/recent_calls_cache.go:159)、[`constant.ContextKeyChannelId`](service/recent_calls_cache.go:160)
     - headers 脱敏：[`sanitizeHeaders()`](service/recent_calls_cache.go:490) 会 mask `authorization/x-api-key/x-goog-api-key/proxy-authorization`
-    - 请求 body 省略/截断：[`encodeBodyForRecord()`](service/recent_calls_cache.go:510) 对 `multipart/form-data` 直接 omit（原因 `multipart_form_data`）；文本按 [`DefaultMaxRequestBodyBytes`](service/recent_calls_cache.go:24) 截断
+    - 请求 body 省略/截断：[`encodeBodyForRecord()`](service/recent_calls_cache.go:510) 对 `multipart/form-data` 直接 omit（原因 `multipart_form_data`）；文本按 [`DefaultMaxRequestBodyBytes`](service/recent_calls_cache.go:24) 截断后写入临时文件（内存只保留 meta）。
     - 将 record id 写入 gin context：key 为 [`RecentCallsContextKeyID`](service/recent_calls_cache.go:20)
   - Relay 主链路接入（确保每次请求都会 Begin）：在 [`controller.Relay()`](controller/relay.go:65) 中读取 requestBody 后调用 [`service.RecentCallsCache().BeginFromContext()`](controller/relay.go:208)（若之前未写入 recent_calls_id）。
-  - 非流式上游响应：[`(*recentCallsCache).UpsertUpstreamResponseByContext()`](service/recent_calls_cache.go:218)，例如 OpenAI 非流式路径调用见 [`service.RecentCallsCache().UpsertUpstreamResponseByContext()`](relay/channel/openai/relay-openai.go:209)，记录 `status_code/headers/body` 并按 [`DefaultMaxResponseBodyBytes`](service/recent_calls_cache.go:25) 截断。
+  - 非流式上游响应：[`(*recentCallsCache).UpsertUpstreamResponseByContext()`](service/recent_calls_cache.go:218)，例如 OpenAI 非流式路径调用见 [`service.RecentCallsCache().UpsertUpstreamResponseByContext()`](relay/channel/openai/relay-openai.go:209)，记录 `status_code/headers` 并将 `body`（按 [`DefaultMaxResponseBodyBytes`](service/recent_calls_cache.go:25) 截断）写入临时文件。
   - 流式上游响应（保存 raw chunk + 聚合文本）
     - 初始化 stream：[`(*recentCallsCache).EnsureStreamByContext()`](service/recent_calls_cache.go:255)（OpenAI 流式见 [`EnsureStreamByContext()`](relay/channel/openai/relay-openai.go:114)，Gemini 流式见 [`EnsureStreamByContext()`](relay/channel/gemini/relay-gemini.go:1075)）
-    - 追加 raw chunk：[`(*recentCallsCache).AppendStreamChunkByContext()`](service/recent_calls_cache.go:283)，单 chunk 按 [`DefaultMaxStreamChunkBytes`](service/recent_calls_cache.go:27) 截断，总量按 [`DefaultMaxStreamTotalBytes`](service/recent_calls_cache.go:28) 限制（超限标记 `chunks_truncated`）
-    - 写入聚合 assistant 文本：[`(*recentCallsCache).FinalizeStreamAggregatedTextByContext()`](service/recent_calls_cache.go:323)（OpenAI 写入见 [`FinalizeStreamAggregatedTextByContext()`](relay/channel/openai/relay-openai.go:190)，Gemini 写入见 [`FinalizeStreamAggregatedTextByContext()`](relay/channel/gemini/relay-gemini.go:1119)）
+    - 追加 raw chunk：[`(*recentCallsCache).AppendStreamChunkByContext()`](service/recent_calls_cache.go:283) 将 chunk 追加写入临时文件（JSONL，一行一个 JSON string），单 chunk 按 [`DefaultMaxStreamChunkBytes`](service/recent_calls_cache.go:27) 截断，总量按 [`DefaultMaxStreamTotalBytes`](service/recent_calls_cache.go:28) 限制（超限标记 `chunks_truncated`）。
+    - 写入聚合 assistant 文本：[`(*recentCallsCache).FinalizeStreamAggregatedTextByContext()`](service/recent_calls_cache.go:323) 将聚合文本写入临时文件；返回 API 时按需读回（OpenAI/Gemini 调用点同原实现）。
   - 错误记录：[`(*recentCallsCache).UpsertErrorByContext()`](service/recent_calls_cache.go:196)，在 [`processChannelError()`](controller/relay.go:357) 里写入（见 [`UpsertErrorByContext()`](controller/relay.go:360)），包含 `message/type/code/status`。
   - 上游错误响应体读取上限：当上游返回非 200 并进入 [`service.RelayErrorHandler()`](service/error.go:86) 时，仅读取最多 1MiB 的 error body（超出追加 `...[truncated]`），避免上游回显大 payload 导致日志/IO 压力。
 

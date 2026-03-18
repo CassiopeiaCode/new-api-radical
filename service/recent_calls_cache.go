@@ -1,8 +1,13 @@
 package service
 
 import (
+	"bufio"
 	"encoding/base64"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,10 +48,10 @@ type RecentCallRequest struct {
 	Path   string            `json:"path"`
 	Header map[string]string `json:"headers,omitempty"`
 
-	BodyType  string `json:"body_type,omitempty"`  // json/text/binary/unknown/omitted
-	Body      string `json:"body,omitempty"`       // truncated string or base64 (when BodyType=binary)
-	Truncated bool   `json:"truncated,omitempty"`  // body truncated
-	Omitted   bool   `json:"omitted,omitempty"`    // body not recorded
+	BodyType   string `json:"body_type,omitempty"` // json/text/binary/unknown/omitted
+	Body       string `json:"body,omitempty"`      // truncated string or base64 (when BodyType=binary)
+	Truncated  bool   `json:"truncated,omitempty"` // body truncated
+	Omitted    bool   `json:"omitted,omitempty"`   // body not recorded
 	OmitReason string `json:"omit_reason,omitempty"`
 }
 
@@ -54,17 +59,17 @@ type RecentCallUpstreamResponse struct {
 	StatusCode int               `json:"status_code"`
 	Header     map[string]string `json:"headers,omitempty"`
 
-	BodyType  string `json:"body_type,omitempty"`  // json/text/binary/unknown/omitted
-	Body      string `json:"body,omitempty"`       // raw upstream body (string or base64)
-	Truncated bool   `json:"truncated,omitempty"`
-	Omitted   bool   `json:"omitted,omitempty"`
+	BodyType   string `json:"body_type,omitempty"` // json/text/binary/unknown/omitted
+	Body       string `json:"body,omitempty"`      // raw upstream body (string or base64)
+	Truncated  bool   `json:"truncated,omitempty"`
+	Omitted    bool   `json:"omitted,omitempty"`
 	OmitReason string `json:"omit_reason,omitempty"`
 }
 
 type RecentCallUpstreamStream struct {
-	Chunks              []string `json:"chunks,omitempty"`             // raw SSE data payload lines
-	ChunksTruncated     bool     `json:"chunks_truncated,omitempty"`   // some chunks dropped/truncated due to limits
-	AggregatedText      string   `json:"aggregated_text,omitempty"`    // best-effort aggregated assistant text
+	Chunks              []string `json:"chunks,omitempty"`           // raw SSE data payload lines
+	ChunksTruncated     bool     `json:"chunks_truncated,omitempty"` // some chunks dropped/truncated due to limits
+	AggregatedText      string   `json:"aggregated_text,omitempty"`  // best-effort aggregated assistant text
 	AggregatedTruncated bool     `json:"aggregated_truncated,omitempty"`
 
 	StreamBytes int `json:"-"`
@@ -88,10 +93,25 @@ type RecentCallRecord struct {
 	Method string `json:"method"`
 	Path   string `json:"path"`
 
-	Request  RecentCallRequest          `json:"request"`
+	Request  RecentCallRequest           `json:"request"`
 	Response *RecentCallUpstreamResponse `json:"response,omitempty"`
 	Stream   *RecentCallUpstreamStream   `json:"stream,omitempty"`
 	Error    *RecentCallErrorInfo        `json:"error,omitempty"`
+}
+
+type recentCallEntry struct {
+	meta RecentCallRecord
+
+	reqBodyPath   string
+	respBodyPath  string
+	streamPath    string
+	streamAggPath string
+
+	streamBytes  int
+	streamInited bool
+
+	mu      sync.Mutex
+	evicted bool
 }
 
 type recentCallsCache struct {
@@ -100,7 +120,9 @@ type recentCallsCache struct {
 	nextID atomic.Uint64
 
 	mu     sync.RWMutex
-	buffer []*RecentCallRecord
+	buffer []*recentCallEntry
+
+	tempSessionDir string
 }
 
 var recentCallsSingleton = newRecentCallsCache(RecentCallsCacheConfig{
@@ -134,9 +156,12 @@ func newRecentCallsCache(cfg RecentCallsCacheConfig) *recentCallsCache {
 		cfg.MaxStreamTotalBytes = DefaultMaxStreamTotalBytes
 	}
 
+	sessionDir := initRecentCallsTempDir()
+
 	return &recentCallsCache{
-		cfg:    cfg,
-		buffer: make([]*RecentCallRecord, cfg.Capacity),
+		cfg:            cfg,
+		buffer:         make([]*recentCallEntry, cfg.Capacity),
+		tempSessionDir: sessionDir,
 	}
 }
 
@@ -185,11 +210,30 @@ func (cch *recentCallsCache) BeginFromContext(c *gin.Context, info *relaycommon.
 		},
 	}
 
-	rec.Request.BodyType, rec.Request.Body, rec.Request.Truncated, rec.Request.Omitted, rec.Request.OmitReason =
+	bodyType, body, truncated, omitted, omitReason :=
 		encodeBodyForRecord(c.Request.Header.Get("Content-Type"), rawRequestBody, cch.cfg.MaxRequestBodyBytes)
+	rec.Request.BodyType = bodyType
+	rec.Request.Truncated = truncated
+	rec.Request.Omitted = omitted
+	rec.Request.OmitReason = omitReason
+
+	entry := &recentCallEntry{
+		meta: *rec,
+	}
+	entry.reqBodyPath = cch.pathForID(id, "req_body.txt")
+	if !omitted && body != "" {
+		if entry.reqBodyPath == "" {
+			entry.meta.Request.Omitted = true
+			entry.meta.Request.OmitReason = "temp_dir_unavailable"
+		} else if err := entry.writeTextFile(entry.reqBodyPath, body); err != nil {
+			entry.meta.Request.Omitted = true
+			entry.meta.Request.OmitReason = "temp_write_failed"
+			entry.reqBodyPath = ""
+		}
+	}
 
 	c.Set(RecentCallsContextKeyID, id)
-	cch.put(rec)
+	cch.put(entry)
 	return id
 }
 
@@ -202,12 +246,17 @@ func (cch *recentCallsCache) UpsertErrorByContext(c *gin.Context, errMsg string,
 		return
 	}
 	cch.mu.Lock()
-	defer cch.mu.Unlock()
-	rec := cch.getLocked(id)
-	if rec == nil {
+	entry := cch.getLocked(id)
+	cch.mu.Unlock()
+	if entry == nil {
 		return
 	}
-	rec.Error = &RecentCallErrorInfo{
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.evicted {
+		return
+	}
+	entry.meta.Error = &RecentCallErrorInfo{
 		Message: errMsg,
 		Type:    errType,
 		Code:    errCode,
@@ -236,19 +285,36 @@ func (cch *recentCallsCache) UpsertUpstreamResponseByContext(c *gin.Context, res
 	bodyType, body, truncated, omitted, omitReason := encodeBodyForRecord(contentType, rawUpstreamBody, cch.cfg.MaxResponseBodyBytes)
 
 	cch.mu.Lock()
-	defer cch.mu.Unlock()
-	rec := cch.getLocked(id)
-	if rec == nil {
+	entry := cch.getLocked(id)
+	cch.mu.Unlock()
+	if entry == nil {
 		return
 	}
-	rec.Response = &RecentCallUpstreamResponse{
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.evicted {
+		return
+	}
+
+	entry.meta.Response = &RecentCallUpstreamResponse{
 		StatusCode: statusCode,
 		Header:     header,
 		BodyType:   bodyType,
-		Body:       body,
 		Truncated:  truncated,
 		Omitted:    omitted,
 		OmitReason: omitReason,
+	}
+
+	entry.respBodyPath = cch.pathForID(id, "resp_body.txt")
+	if !omitted && body != "" {
+		if entry.respBodyPath == "" {
+			entry.meta.Response.Omitted = true
+			entry.meta.Response.OmitReason = "temp_dir_unavailable"
+		} else if err := entry.writeTextFile(entry.respBodyPath, body); err != nil {
+			entry.meta.Response.Omitted = true
+			entry.meta.Response.OmitReason = "temp_write_failed"
+			entry.respBodyPath = ""
+		}
 	}
 }
 
@@ -262,20 +328,36 @@ func (cch *recentCallsCache) EnsureStreamByContext(c *gin.Context, resp *http.Re
 	}
 
 	cch.mu.Lock()
-	defer cch.mu.Unlock()
-	rec := cch.getLocked(id)
-	if rec == nil {
+	entry := cch.getLocked(id)
+	cch.mu.Unlock()
+	if entry == nil {
 		return
 	}
-	if rec.Stream == nil {
-		rec.Stream = &RecentCallUpstreamStream{
-			Chunks: make([]string, 0, 32),
-		}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.evicted {
+		return
 	}
-	if rec.Response == nil && resp != nil {
-		rec.Response = &RecentCallUpstreamResponse{
+
+	if entry.meta.Stream == nil {
+		entry.meta.Stream = &RecentCallUpstreamStream{}
+	}
+	if entry.meta.Response == nil && resp != nil {
+		entry.meta.Response = &RecentCallUpstreamResponse{
 			StatusCode: resp.StatusCode,
 			Header:     sanitizeHeaders(resp.Header),
+		}
+	}
+
+	if !entry.streamInited {
+		entry.streamInited = true
+		entry.streamPath = cch.pathForID(id, "stream_chunks.jsonl")
+		entry.streamAggPath = cch.pathForID(id, "stream_agg.txt")
+		if entry.streamPath == "" || entry.ensureEmptyFile(entry.streamPath) != nil {
+			entry.streamInited = false
+			entry.streamPath = ""
+			entry.streamAggPath = ""
+			entry.meta.Stream.ChunksTruncated = true
 		}
 	}
 }
@@ -296,28 +378,56 @@ func (cch *recentCallsCache) AppendStreamChunkByContext(c *gin.Context, chunk st
 	}
 
 	cch.mu.Lock()
-	defer cch.mu.Unlock()
-	rec := cch.getLocked(id)
-	if rec == nil {
+	entry := cch.getLocked(id)
+	cch.mu.Unlock()
+	if entry == nil {
 		return
 	}
-	if rec.Stream == nil {
-		rec.Stream = &RecentCallUpstreamStream{
-			Chunks: make([]string, 0, 32),
-		}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.evicted {
+		return
 	}
 
 	if chunkTruncated {
-		rec.Stream.ChunksTruncated = true
+		if entry.meta.Stream == nil {
+			entry.meta.Stream = &RecentCallUpstreamStream{}
+		}
+		entry.meta.Stream.ChunksTruncated = true
 	}
 
-	if cch.cfg.MaxStreamTotalBytes > 0 && rec.Stream.StreamBytes+len(chunk) > cch.cfg.MaxStreamTotalBytes {
-		rec.Stream.ChunksTruncated = true
+	if cch.cfg.MaxStreamTotalBytes > 0 && entry.streamBytes+len(chunk) > cch.cfg.MaxStreamTotalBytes {
+		if entry.meta.Stream == nil {
+			entry.meta.Stream = &RecentCallUpstreamStream{}
+		}
+		entry.meta.Stream.ChunksTruncated = true
 		return
 	}
 
-	rec.Stream.Chunks = append(rec.Stream.Chunks, chunk)
-	rec.Stream.StreamBytes += len(chunk)
+	if !entry.streamInited {
+		entry.streamInited = true
+		entry.streamPath = cch.pathForID(id, "stream_chunks.jsonl")
+		entry.streamAggPath = cch.pathForID(id, "stream_agg.txt")
+		if entry.streamPath == "" || entry.ensureEmptyFile(entry.streamPath) != nil {
+			if entry.meta.Stream == nil {
+				entry.meta.Stream = &RecentCallUpstreamStream{}
+			}
+			entry.meta.Stream.ChunksTruncated = true
+			entry.streamInited = false
+			entry.streamPath = ""
+			entry.streamAggPath = ""
+			return
+		}
+	}
+
+	if err := entry.appendJSONLString(entry.streamPath, chunk); err != nil {
+		if entry.meta.Stream == nil {
+			entry.meta.Stream = &RecentCallUpstreamStream{}
+		}
+		entry.meta.Stream.ChunksTruncated = true
+		return
+	}
+	entry.streamBytes += len(chunk)
 }
 
 func (cch *recentCallsCache) FinalizeStreamAggregatedTextByContext(c *gin.Context, aggregated string) {
@@ -335,19 +445,36 @@ func (cch *recentCallsCache) FinalizeStreamAggregatedTextByContext(c *gin.Contex
 		truncated = true
 	}
 
-	cch.mu.Lock()
-	defer cch.mu.Unlock()
-	rec := cch.getLocked(id)
-	if rec == nil {
+	cch.mu.RLock()
+	entry := cch.getLocked(id)
+	cch.mu.RUnlock()
+	if entry == nil {
 		return
 	}
-	if rec.Stream == nil {
-		rec.Stream = &RecentCallUpstreamStream{
-			Chunks: make([]string, 0, 32),
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.evicted {
+		return
+	}
+	if entry.meta.Stream == nil {
+		entry.meta.Stream = &RecentCallUpstreamStream{}
+	}
+	entry.meta.Stream.AggregatedTruncated = truncated
+
+	if !entry.streamInited {
+		entry.streamInited = true
+		entry.streamPath = cch.pathForID(id, "stream_chunks.jsonl")
+		entry.streamAggPath = cch.pathForID(id, "stream_agg.txt")
+		if entry.streamPath == "" || entry.ensureEmptyFile(entry.streamPath) != nil {
+			entry.streamInited = false
+			entry.streamPath = ""
+			entry.streamAggPath = ""
+			entry.meta.Stream.ChunksTruncated = true
+			return
 		}
 	}
-	rec.Stream.AggregatedText = aggregated
-	rec.Stream.AggregatedTruncated = truncated
+
+	_ = entry.writeTextFile(entry.streamAggPath, aggregated)
 }
 
 func (cch *recentCallsCache) Get(id uint64) (*RecentCallRecord, bool) {
@@ -355,29 +482,12 @@ func (cch *recentCallsCache) Get(id uint64) (*RecentCallRecord, bool) {
 		return nil, false
 	}
 	cch.mu.RLock()
-	defer cch.mu.RUnlock()
-	rec := cch.getLocked(id)
-	if rec == nil {
+	entry := cch.getLocked(id)
+	cch.mu.RUnlock()
+	if entry == nil {
 		return nil, false
 	}
-	dup := *rec
-	if rec.Response != nil {
-		r := *rec.Response
-		dup.Response = &r
-	}
-	if rec.Stream != nil {
-		s := *rec.Stream
-		if rec.Stream.Chunks != nil {
-			s.Chunks = append([]string(nil), rec.Stream.Chunks...)
-		}
-		s.StreamBytes = 0
-		dup.Stream = &s
-	}
-	if rec.Error != nil {
-		e := *rec.Error
-		dup.Error = &e
-	}
-	return &dup, true
+	return cch.materializeEntry(entry)
 }
 
 func (cch *recentCallsCache) List(limit int, beforeID uint64) []*RecentCallRecord {
@@ -394,66 +504,61 @@ func (cch *recentCallsCache) List(limit int, beforeID uint64) []*RecentCallRecor
 	cch.mu.RLock()
 	defer cch.mu.RUnlock()
 
-	items := make([]*RecentCallRecord, 0, limit)
-	for _, rec := range cch.buffer {
-		if rec == nil {
+	items := make([]*recentCallEntry, 0, limit)
+	for _, entry := range cch.buffer {
+		if entry == nil {
 			continue
 		}
-		if beforeID != 0 && rec.ID >= beforeID {
+		if beforeID != 0 && entry.meta.ID >= beforeID {
 			continue
 		}
-		items = append(items, rec)
+		items = append(items, entry)
 	}
 
-	sort.Slice(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+	sort.Slice(items, func(i, j int) bool { return items[i].meta.ID > items[j].meta.ID })
 	if len(items) > limit {
 		items = items[:limit]
 	}
 
 	out := make([]*RecentCallRecord, 0, len(items))
-	for _, rec := range items {
-		dup := *rec
-		if rec.Response != nil {
-			r := *rec.Response
-			dup.Response = &r
+	for _, entry := range items {
+		dup, ok := cch.materializeEntry(entry)
+		if !ok || dup == nil {
+			continue
 		}
-		if rec.Stream != nil {
-			s := *rec.Stream
-			if rec.Stream.Chunks != nil {
-				s.Chunks = append([]string(nil), rec.Stream.Chunks...)
-			}
-			s.StreamBytes = 0
-			dup.Stream = &s
-		}
-		if rec.Error != nil {
-			e := *rec.Error
-			dup.Error = &e
-		}
-		out = append(out, &dup)
+		out = append(out, dup)
 	}
 	return out
 }
 
-func (cch *recentCallsCache) put(rec *RecentCallRecord) {
-	if cch == nil || rec == nil {
+func (cch *recentCallsCache) put(entry *recentCallEntry) {
+	if cch == nil || entry == nil {
 		return
 	}
-	idx := int(rec.ID % uint64(cch.cfg.Capacity))
+	idx := int(entry.meta.ID % uint64(cch.cfg.Capacity))
 	cch.mu.Lock()
-	cch.buffer[idx] = rec
+	old := cch.buffer[idx]
+	cch.buffer[idx] = entry
 	cch.mu.Unlock()
+
+	if old != nil && old.meta.ID != entry.meta.ID {
+		old.mu.Lock()
+		old.evicted = true
+		_ = old.cleanupFiles()
+		old.mu.Unlock()
+	}
 }
 
-func (cch *recentCallsCache) getLocked(id uint64) *RecentCallRecord {
+func (cch *recentCallsCache) getLocked(id uint64) *recentCallEntry {
 	if cch == nil || id == 0 {
 		return nil
 	}
 	idx := int(id % uint64(cch.cfg.Capacity))
-	rec := cch.buffer[idx]
-	if rec == nil || rec.ID != id {
+	entry := cch.buffer[idx]
+	if entry == nil || entry.meta.ID != id {
 		return nil
 	}
-	return rec
+	return entry
 }
 
 func getRecentCallID(c *gin.Context) uint64 {
@@ -548,4 +653,203 @@ func encodeBodyForRecord(contentType string, body []byte, limit int) (bodyType s
 		truncated = true
 	}
 	return bodyType, s, truncated, false, ""
+}
+
+func initRecentCallsTempDir() string {
+	base := os.TempDir()
+	const prefix = "new-api-recent-calls-"
+	const marker = ".new-api-recent-calls"
+
+	dir, err := os.MkdirTemp(base, prefix)
+	if err != nil {
+		return ""
+	}
+	_ = os.WriteFile(filepath.Join(dir, marker), []byte("ok\n"), 0o600)
+
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return dir
+	}
+	for _, de := range entries {
+		if !de.IsDir() {
+			continue
+		}
+		name := de.Name()
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		full := filepath.Join(base, name)
+		if samePath(full, dir) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(full, marker)); err == nil {
+			_ = os.RemoveAll(full)
+		}
+	}
+	return dir
+}
+
+func samePath(a, b string) bool {
+	aa, err1 := filepath.Abs(a)
+	bb, err2 := filepath.Abs(b)
+	if err1 == nil && err2 == nil {
+		return strings.EqualFold(aa, bb)
+	}
+	return a == b
+}
+
+func (cch *recentCallsCache) pathForID(id uint64, name string) string {
+	if cch == nil || id == 0 || name == "" {
+		return ""
+	}
+	base := cch.tempSessionDir
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, fmt.Sprintf("%d_%s", id, name))
+}
+
+func (cch *recentCallsCache) materializeEntry(entry *recentCallEntry) (*RecentCallRecord, bool) {
+	if cch == nil || entry == nil {
+		return nil, false
+	}
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.evicted {
+		return nil, false
+	}
+
+	dup := entry.meta
+	if dup.Response != nil {
+		r := *dup.Response
+		dup.Response = &r
+	}
+	if dup.Stream != nil {
+		s := *dup.Stream
+		s.StreamBytes = 0
+		dup.Stream = &s
+	}
+	if dup.Error != nil {
+		e := *dup.Error
+		dup.Error = &e
+	}
+
+	if entry.reqBodyPath != "" && !dup.Request.Omitted {
+		if body, err := os.ReadFile(entry.reqBodyPath); err == nil {
+			dup.Request.Body = string(body)
+		}
+	}
+	if entry.respBodyPath != "" && dup.Response != nil && !dup.Response.Omitted {
+		if body, err := os.ReadFile(entry.respBodyPath); err == nil {
+			dup.Response.Body = string(body)
+		}
+	}
+
+	if entry.streamInited && dup.Stream != nil && entry.streamPath != "" {
+		chunks, err := readJSONLStrings(entry.streamPath, 512<<10)
+		if err == nil {
+			dup.Stream.Chunks = chunks
+		} else {
+			dup.Stream.Chunks = []string{}
+		}
+	}
+	if entry.streamInited && dup.Stream != nil && entry.streamAggPath != "" {
+		if agg, err := os.ReadFile(entry.streamAggPath); err == nil {
+			dup.Stream.AggregatedText = string(agg)
+		}
+	}
+
+	return &dup, true
+}
+
+func readJSONLStrings(path string, maxLineBytes int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	if maxLineBytes < 64<<10 {
+		maxLineBytes = 64 << 10
+	}
+	sc.Buffer(make([]byte, 0, 64<<10), maxLineBytes)
+
+	out := make([]string, 0, 64)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var s string
+		if err := common.Unmarshal([]byte(line), &s); err != nil {
+			continue
+		}
+		out = append(out, s)
+	}
+	if err := sc.Err(); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func (e *recentCallEntry) ensureEmptyFile(path string) error {
+	if path == "" {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+func (e *recentCallEntry) writeTextFile(path string, content string) error {
+	if path == "" {
+		return nil
+	}
+	return os.WriteFile(path, []byte(content), 0o600)
+}
+
+func (e *recentCallEntry) appendJSONLString(path string, value string) error {
+	if path == "" {
+		return nil
+	}
+	b, err := common.Marshal(value)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.Write(b); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(f, "\n"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *recentCallEntry) cleanupFiles() error {
+	var firstErr error
+	paths := []string{e.reqBodyPath, e.respBodyPath, e.streamPath, e.streamAggPath}
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	e.reqBodyPath = ""
+	e.respBodyPath = ""
+	e.streamPath = ""
+	e.streamAggPath = ""
+	return firstErr
 }
