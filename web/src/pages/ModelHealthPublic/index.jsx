@@ -152,16 +152,48 @@ function LegendItem({ color, label }) {
   );
 }
 
-function StatCardSkeleton() {
+function StatCardSkeleton({ icon, title, bgGradient, iconBg, valueWidth = 110 }) {
   return (
-    <div className='relative overflow-hidden rounded-2xl p-5 sm:p-6 min-h-[140px] flex flex-col justify-between shadow-lg bg-gray-100'>
-      <div className='flex items-center justify-between'>
-        <Skeleton.Title style={{ width: 86, height: 14, marginBottom: 0, borderRadius: 8 }} />
-        <Skeleton.Avatar size='large' shape='square' />
+    <div
+      className='relative overflow-hidden rounded-2xl p-5 sm:p-6 min-h-[140px] flex flex-col justify-between shadow-lg'
+      style={{
+        background: bgGradient,
+      }}
+    >
+      <div
+        className='absolute -right-8 -top-8 w-32 h-32 rounded-full opacity-20'
+        style={{ backgroundColor: 'rgba(255,255,255,0.3)' }}
+      />
+      <div
+        className='absolute -right-4 -bottom-4 w-24 h-24 rounded-full opacity-15'
+        style={{ backgroundColor: 'rgba(255,255,255,0.4)' }}
+      />
+      <div className='flex items-center justify-between relative z-10'>
+        <div className='text-sm font-medium text-white/90 tracking-wide'>{title}</div>
+        <div
+          className='w-10 h-10 rounded-xl flex items-center justify-center'
+          style={{ backgroundColor: iconBg || 'rgba(255,255,255,0.2)' }}
+        >
+          {icon}
+        </div>
       </div>
-      <div className='mt-3'>
-        <Skeleton.Title style={{ width: 110, height: 34, marginBottom: 10, borderRadius: 10 }} />
-        <Skeleton.Title style={{ width: 80, height: 12, marginBottom: 0, borderRadius: 8 }} />
+      <div className='relative z-10 mt-3'>
+        <Skeleton.Title
+          style={{
+            width: valueWidth,
+            height: 34,
+            marginBottom: 10,
+            borderRadius: 10,
+          }}
+        />
+        <Skeleton.Title
+          style={{
+            width: 80,
+            height: 12,
+            marginBottom: 0,
+            borderRadius: 8,
+          }}
+        />
       </div>
     </div>
   );
@@ -443,10 +475,34 @@ export default function ModelHealthPublicPage() {
         <div className='grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8'>
           {isInitialLoading ? (
             <>
-              <StatCardSkeleton />
-              <StatCardSkeleton />
-              <StatCardSkeleton />
-              <StatCardSkeleton />
+              <StatCardSkeleton
+                icon={<IconTickCircle className='text-white' size='large' />}
+                title='监控模型数'
+                bgGradient='var(--semi-color-primary-hover)'
+                iconBg='rgba(255,255,255,0.25)'
+                valueWidth={72}
+              />
+              <StatCardSkeleton
+                icon={<IconTickCircle className='text-white' size='large' />}
+                title='整体成功率'
+                bgGradient='var(--semi-color-success)'
+                iconBg='rgba(255,255,255,0.25)'
+                valueWidth={96}
+              />
+              <StatCardSkeleton
+                icon={<IconTickCircle className='text-white' size='large' />}
+                title='Token总数'
+                bgGradient='var(--semi-color-primary)'
+                iconBg='rgba(255,255,255,0.25)'
+                valueWidth={120}
+              />
+              <StatCardSkeleton
+                icon={<IconTickCircle className='text-white' size='large' />}
+                title='优良模型'
+                bgGradient='var(--semi-color-success-active)'
+                iconBg='rgba(255,255,255,0.25)'
+                valueWidth={72}
+              />
             </>
           ) : (
             <>
@@ -456,7 +512,7 @@ export default function ModelHealthPublicPage() {
                 value={stats.totalModels}
                 subtitle={`${stats.healthyModels} 个健康`}
                 color='#4dd0e1'
-                bgGradient='linear-gradient(135deg, #4dd0e1 0%, #3ba8b6 100%)'
+                bgGradient='var(--semi-color-primary-hover)'
                 iconBg='rgba(255,255,255,0.25)'
               />
               <StatCard
@@ -465,7 +521,7 @@ export default function ModelHealthPublicPage() {
                 value={formatRate(stats.overallRate)}
                 subtitle='过去24小时'
                 color='#66bb6a'
-                bgGradient='linear-gradient(135deg, #66bb6a 0%, #4a9c5d 100%)'
+                bgGradient='var(--semi-color-success)'
                 iconBg='rgba(255,255,255,0.25)'
               />
               <StatCard
@@ -474,7 +530,7 @@ export default function ModelHealthPublicPage() {
                 value={formatTokens(stats.totalSuccessTokens)}
                 subtitle='过去24小时'
                 color='#60a5fa'
-                bgGradient='linear-gradient(135deg, #60a5fa 0%, #2563eb 100%)'
+                bgGradient='var(--semi-color-primary)'
                 iconBg='rgba(255,255,255,0.25)'
               />
               <StatCard
@@ -483,7 +539,7 @@ export default function ModelHealthPublicPage() {
                 value={stats.healthyModels}
                 subtitle='成功率 ≥80%'
                 color='#0f766e'
-                bgGradient='linear-gradient(135deg, #5eead4 0%, #0f766e 100%)'
+                bgGradient='var(--semi-color-success-active)'
                 iconBg='rgba(255,255,255,0.25)'
               />
             </>
