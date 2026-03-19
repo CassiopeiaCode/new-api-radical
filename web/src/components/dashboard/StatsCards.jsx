@@ -73,8 +73,9 @@ const StatsCards = ({
             className='border-0 !rounded-2xl w-full'
             style={{
               ...CARD_PROPS?.style,
-              backgroundColor:
+              background:
                 cardBackgroundColors[idx] || 'var(--semi-color-bg-1)',
+              backgroundImage: 'none',
             }}
             title={group.title}
           >
