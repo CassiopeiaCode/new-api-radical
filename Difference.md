@@ -1,47 +1,5 @@
 # 和Newapi上游的区别
 
-0. 【已实现】基于 pprof 证据的 Claude/OpenAI 兼容转换热路径最小性能修复
-
-- 背景与目标（保留外部行为）
-  - 已根据线上 pprof 热点，对 Claude/OpenAI 兼容转换中的高频 JSON 往返和重复扫描做最小改动优化，目标是降低 `dto.(*ClaudeRequest).SearchToolNameByToolCallId`、`dto.(*ClaudeMessage).ParseContent`、`dto.(*ClaudeMediaMessage).ParseMediaContent`、`dto.(*ClaudeRequest).ParseSystem` 所在热路径 CPU 与不必要的 `Marshal/Unmarshal` 开销。
-  - 约束保持不变：未修改对外 API、JSON tag、导出字段语义；新增缓存字段使用 `json:"-"`，不影响序列化。
-
-- 请求级 tool name 索引缓存
-  - 在 [`dto.ClaudeRequest`](dto/claude.go) 内新增非序列化字段 `toolNameByCallID map[string]string`，按 `tool_use.id -> tool_use.name` 懒加载建立索引。
-  - [`(*dto.ClaudeRequest).SearchToolNameByToolCallId()`](dto/claude.go) 现已改为：
-    - 空 `toolCallId` 直接返回空字符串；
-    - 首次查询时调用内部 `ensureToolNameIndex()` 扫描一次消息；
-    - 后续查询直接走 map，避免每次重新全量扫描并重复解析 `messages[*].content`。
-  - 索引构建仅收集 `type == "tool_use"` 且 `id/name` 非空的条目；解析失败时跳过该消息，保持原有兼容回退风格。
-
-- Claude 内容解析快路径
-  - 在 [`dto/claude.go`](dto/claude.go) 新增内部 helper `parseClaudeMediaMessagesFast(data any)` 与 `parseClaudeMediaMessageItemFast(item any)`。
-  - 快路径优先覆盖常见输入形态：
-    - `[]ClaudeMediaMessage`
-    - `[]*ClaudeMediaMessage`
-    - `[]any`
-    - `[]map[string]any`
-    - `nil`
-  - 对 `[]any` / `[]map[string]any`：
-    - 若元素已是 `ClaudeMediaMessage` 或 `*ClaudeMediaMessage`，直接复用；
-    - 其他单项仍允许回退到 [`common.Any2Type`](common/utils.go)，保留兼容性；
-    - 如果快路径过程中遇到无法按单项处理的内容，则整体回退到原有 `Any2Type[[]ClaudeMediaMessage]` 逻辑。
-  - 以下函数已切换到快路径实现，降低整块 `content/system` 的 `Marshal+Unmarshal` 次数：
-    - [`(*dto.ClaudeMessage).ParseContent()`](dto/claude.go)
-    - [`(*dto.ClaudeMediaMessage).ParseMediaContent()`](dto/claude.go)
-    - [`(*dto.ClaudeRequest).ParseSystem()`](dto/claude.go)
-
-- convert 路径的实际收益点
-  - [`service.ClaudeToOpenAIRequest()`](service/convert.go) 中 `tool_result` 分支仍保持原有行为：当 `mediaMsg.Name` 为空时，调用 [`SearchToolNameByToolCallId`](dto/claude.go) 回查名称。
-  - 由于该查询现在已变为“首次建索引 + 后续 O(1) map 查找”，因此无需在 `convert` 层做更大范围缓存改造，即可消除原来的“每个 tool_result 都重新扫描全部 messages 并重复解析”的热点开销。
-
-- 验证
-  - 新增 [`dto/claude_test.go`](dto/claude_test.go)：
-    - 覆盖多条 messages / 多个 `tool_use` / `tool_result` 下的 `SearchToolNameByToolCallId` 正确性；
-    - 覆盖重复调用结果稳定；
-    - 覆盖 `ParseContent` / `ParseSystem` / `ParseMediaContent` 对 `[]ClaudeMediaMessage`、`[]any{map[string]any{...}}`、`nil`、字符串内容路径的兼容性；
-    - 增加基准，对比旧式全量扫描与新索引查找。
-
 1. 【已实现】模型健康度（5 分钟切片 → 小时聚合 → 成功率展示）
 
 - 原始需求（保留）：实现维护模型健康度（健康度是一个时间的比值，每5分钟一个单位，如果该单位内只有失败的请求，那么记为失败时间片，如果有一个或多个成功请求并且（返回的byte长度大于1k或完成token大于2或实际响应模型回复大于2char），记为成功时间片，可查看不同小时时间段的模型成功率），实现后端和对应前端，，设计数据结构和新表实现良好性能。实现对非管理员隐藏可自定义模型和时间的查询（在控制台），并实现在导航栏添加新的页面（新页面所有用户即使非登录也可查看），显示所有模型最近24小时每小时的健康度。
@@ -409,3 +367,45 @@
   - `RETRY_DELAY_CPU_THRESHOLD`（默认 `50`，取值 0~100）
   - `RETRY_DELAY_STEP_MS`（默认 `10`，每次调整的步进毫秒数）
   - `RETRY_DELAY_MAX_MS`（默认 `1000`，最大重试间隔毫秒数）
+
+14. 【已实现】基于 pprof 证据的 Claude/OpenAI 兼容转换热路径最小性能修复
+
+- 背景与目标（保留外部行为）
+  - 已根据线上 pprof 热点，对 Claude/OpenAI 兼容转换中的高频 JSON 往返和重复扫描做最小改动优化，目标是降低 `dto.(*ClaudeRequest).SearchToolNameByToolCallId`、`dto.(*ClaudeMessage).ParseContent`、`dto.(*ClaudeMediaMessage).ParseMediaContent`、`dto.(*ClaudeRequest).ParseSystem` 所在热路径 CPU 与不必要的 `Marshal/Unmarshal` 开销。
+  - 约束保持不变：未修改对外 API、JSON tag、导出字段语义；新增缓存字段使用 `json:"-"`，不影响序列化。
+
+- 请求级 tool name 索引缓存
+  - 在 [`dto.ClaudeRequest`](dto/claude.go) 内新增非序列化字段 `toolNameByCallID map[string]string`，按 `tool_use.id -> tool_use.name` 懒加载建立索引。
+  - [`(*dto.ClaudeRequest).SearchToolNameByToolCallId()`](dto/claude.go) 现已改为：
+    - 空 `toolCallId` 直接返回空字符串；
+    - 首次查询时调用内部 `ensureToolNameIndex()` 扫描一次消息；
+    - 后续查询直接走 map，避免每次重新全量扫描并重复解析 `messages[*].content`。
+  - 索引构建仅收集 `type == "tool_use"` 且 `id/name` 非空的条目；解析失败时跳过该消息，保持原有兼容回退风格。
+
+- Claude 内容解析快路径
+  - 在 [`dto/claude.go`](dto/claude.go) 新增内部 helper `parseClaudeMediaMessagesFast(data any)` 与 `parseClaudeMediaMessageItemFast(item any)`。
+  - 快路径优先覆盖常见输入形态：
+    - `[]ClaudeMediaMessage`
+    - `[]*ClaudeMediaMessage`
+    - `[]any`
+    - `[]map[string]any`
+    - `nil`
+  - 对 `[]any` / `[]map[string]any`：
+    - 若元素已是 `ClaudeMediaMessage` 或 `*ClaudeMediaMessage`，直接复用；
+    - 其他单项仍允许回退到 [`common.Any2Type`](common/utils.go)，保留兼容性；
+    - 如果快路径过程中遇到无法按单项处理的内容，则整体回退到原有 `Any2Type[[]ClaudeMediaMessage]` 逻辑。
+  - 以下函数已切换到快路径实现，降低整块 `content/system` 的 `Marshal+Unmarshal` 次数：
+    - [`(*dto.ClaudeMessage).ParseContent()`](dto/claude.go)
+    - [`(*dto.ClaudeMediaMessage).ParseMediaContent()`](dto/claude.go)
+    - [`(*dto.ClaudeRequest).ParseSystem()`](dto/claude.go)
+
+- convert 路径的实际收益点
+  - [`service.ClaudeToOpenAIRequest()`](service/convert.go) 中 `tool_result` 分支仍保持原有行为：当 `mediaMsg.Name` 为空时，调用 [`SearchToolNameByToolCallId`](dto/claude.go) 回查名称。
+  - 由于该查询现在已变为“首次建索引 + 后续 O(1) map 查找”，因此无需在 `convert` 层做更大范围缓存改造，即可消除原来的“每个 tool_result 都重新扫描全部 messages 并重复解析”的热点开销。
+
+- 验证
+  - 新增 [`dto/claude_test.go`](dto/claude_test.go)：
+    - 覆盖多条 messages / 多个 `tool_use` / `tool_result` 下的 `SearchToolNameByToolCallId` 正确性；
+    - 覆盖重复调用结果稳定；
+    - 覆盖 `ParseContent` / `ParseSystem` / `ParseMediaContent` 对 `[]ClaudeMediaMessage`、`[]any{map[string]any{...}}`、`nil`、字符串内容路径的兼容性；
+    - 增加基准，对比旧式全量扫描与新索引查找。
