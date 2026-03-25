@@ -85,6 +85,86 @@ function computeRecordTruncated(rec) {
   );
 }
 
+function safeJsonParse(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    return null;
+  }
+}
+
+function collectTextParts(content) {
+  if (content === undefined || content === null) return [];
+
+  if (typeof content === 'string' || typeof content === 'number') {
+    const text = String(content).trim();
+    return text ? [text] : [];
+  }
+
+  if (Array.isArray(content)) {
+    return content.flatMap((item) => collectTextParts(item));
+  }
+
+  if (typeof content !== 'object') return [];
+
+  const type = safeString(content.type).toLowerCase();
+  if (type === 'text' || type === 'input_text' || type === 'output_text') {
+    return collectTextParts(content.text);
+  }
+  if (type === 'message') {
+    return collectTextParts(content.content);
+  }
+  if (type === 'input_message') {
+    return collectTextParts(content.content);
+  }
+
+  return [];
+}
+
+function extractLastUserTextFromMessages(messages) {
+  if (!Array.isArray(messages)) return '';
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (safeString(message?.role).toLowerCase() !== 'user') continue;
+    const text = collectTextParts(message?.content).join('\n').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function extractLastUserTextFromResponsesInput(input) {
+  if (!Array.isArray(input)) return '';
+  for (let i = input.length - 1; i >= 0; i -= 1) {
+    const item = input[i];
+    const role = safeString(item?.role).toLowerCase();
+    const type = safeString(item?.type).toLowerCase();
+    if (role !== 'user' && type !== 'message' && type !== 'input_message') {
+      continue;
+    }
+    const text = collectTextParts(item?.content).join('\n').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function getLastUserMessagePreview(record) {
+  const req = record?.request || {};
+  if (req?.body_type !== 'json' || req?.omitted) return '';
+  const parsed = safeJsonParse(req?.body);
+  if (!parsed || typeof parsed !== 'object') return '';
+
+  const candidates = [
+    extractLastUserTextFromMessages(parsed.messages),
+    extractLastUserTextFromResponsesInput(parsed.input),
+    collectTextParts(parsed.input).join('\n').trim(),
+  ];
+
+  const fullText = candidates.find((item) => item) || '';
+  if (!fullText) return '';
+  return fullText.slice(0, 100);
+}
+
 function RecentCallStreamViewer({ stream }) {
   const chunks = Array.isArray(stream?.chunks) ? stream.chunks : [];
   const aggregatedText = safeString(stream?.aggregated_text);
@@ -122,28 +202,35 @@ function RecentCallStreamViewer({ stream }) {
         {chunksTruncated && <Tag color='orange'>chunks_truncated</Tag>}
       </div>
 
-      <div style={{ height: 360 }}>
-        <SSEViewer sseData={sseLike} />
+      <div>
+        <div className='flex items-center gap-2 mb-2'>
+          <Typography.Text strong>聚合文本</Typography.Text>
+          {aggregatedTruncated && <Tag color='orange'>aggregated_truncated</Tag>}
+        </div>
+        <div style={{ height: 240 }}>
+          <CodeViewer content={aggregatedText || ''} language='text' wordWrap />
+        </div>
       </div>
 
       <Collapse>
         <Collapse.Panel
-          header={
-            <div className='flex items-center gap-2'>
-              <Typography.Text strong>聚合文本</Typography.Text>
-              {aggregatedTruncated && (
-                <Tag color='orange'>aggregated_truncated</Tag>
-              )}
-            </div>
-          }
-          itemKey='agg'
+          header='SSE数据流'
+          itemKey='sse'
         >
-          <div style={{ height: 240 }}>
-            <CodeViewer content={aggregatedText || ''} language='text' wordWrap />
+          <div style={{ height: 360 }}>
+            <SSEViewer sseData={sseLike} />
           </div>
         </Collapse.Panel>
 
-        <Collapse.Panel header='原始 chunk（文本）' itemKey='raw'>
+        <Collapse.Panel
+          header={
+            <div className='flex items-center gap-2'>
+              <Typography.Text strong>原始 chunk（文本）</Typography.Text>
+              {chunksTruncated && <Tag color='orange'>chunks_truncated</Tag>}
+            </div>
+          }
+          itemKey='raw'
+        >
           <div style={{ height: 300 }}>
             <CodeViewer
               content={(chunks || []).join('\n')}
@@ -413,9 +500,35 @@ export default function RecentCallsPage() {
         title: 'path',
         dataIndex: 'path',
         key: 'path',
+        width: 220,
         render: (v) => (
           <span className='truncate' title={safeString(v)}>{safeString(v)}</span>
         ),
+      },
+      {
+        title: '最后的用户消息',
+        key: 'last_user_message',
+        width: 260,
+        render: (_, r) => {
+          const preview = getLastUserMessagePreview(r);
+          return (
+            <div
+              title={preview || '无可解析用户消息'}
+              style={{
+                maxHeight: 72,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                lineHeight: 1.5,
+              }}
+            >
+              {preview || (
+                <Typography.Text type='tertiary'>-</Typography.Text>
+              )}
+            </div>
+          );
+        },
       },
       {
         title: 'stream',
@@ -531,6 +644,7 @@ export default function RecentCallsPage() {
               key: String(r.id),
             }))}
             pagination={false}
+            scroll={{ x: 1400 }}
             onRow={(record) => ({
               onDoubleClick: () => {
                 setActiveRecord(record);

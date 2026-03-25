@@ -98,6 +98,18 @@ const SSEViewer = ({ sseData }) => {
     });
   }, [parsedSSEData]);
 
+  const handleCollapseChange = useCallback((keys) => {
+    if (Array.isArray(keys)) {
+      setExpandedKeys(keys);
+      return;
+    }
+    if (keys === undefined || keys === null) {
+      setExpandedKeys([]);
+      return;
+    }
+    setExpandedKeys([keys]);
+  }, []);
+
   const handleCopyAll = useCallback(async () => {
     try {
       const allData = parsedSSEData
@@ -268,13 +280,14 @@ const SSEViewer = ({ sseData }) => {
       <div className='flex-1 overflow-auto p-4'>
         <Collapse
           activeKey={expandedKeys}
-          onChange={setExpandedKeys}
+          onChange={handleCollapseChange}
           accordion={false}
           className='bg-white dark:bg-gray-800 rounded-lg'
         >
           {parsedSSEData.map((item) => (
             <Collapse.Panel
               key={item.key}
+              itemKey={item.key}
               header={
                 <div className='flex items-center gap-2'>
                   <Badge count={`#${item.index + 1}`} type='tertiary' />

@@ -98,7 +98,10 @@
   - 路由：`/console/recent-calls` 懒加载 [`RecentCalls`](web/src/App.jsx:56) 并受 [`AdminRoute`](web/src/App.jsx:24) 保护（见该路由定义 [`/console/recent-calls`](web/src/App.jsx:312)）。
   - 侧边栏入口：“最近调用”菜单项 `recent_calls -> /console/recent-calls`（见 [`routerMap`](web/src/components/layout/SiderBar.jsx:33) 与 [`adminItems`](web/src/components/layout/SiderBar.jsx:151)）。
   - API 封装：[`getRecentCalls()`](web/src/services/recentCalls.js:22) 与 [`getRecentCallById()`](web/src/services/recentCalls.js:36) 请求 `/api/debug/recent_calls*`。
-  - 页面实现：[`RecentCallsPage`](web/src/pages/RecentCalls/index.jsx:331) 列表（limit/before_id 翻页）+ 右侧 SideSheet 详情（请求/响应 CodeViewer + 流式 SSEViewer 回放）；403 时跳转 `/forbidden`（见 [`isAxiosError403()`](web/src/pages/RecentCalls/index.jsx:59) 与 [`query()`](web/src/pages/RecentCalls/index.jsx:341)）。
+  - 页面实现：[`RecentCallsPage`](web/src/pages/RecentCalls/index.jsx:433) 列表（limit/before_id 翻页）+ 右侧 SideSheet 详情（请求/响应 CodeViewer + 流式回放）；403 时跳转 `/forbidden`（见 [`isAxiosError403()`](web/src/pages/RecentCalls/index.jsx:49) 与 [`query()`](web/src/pages/RecentCalls/index.jsx:446)）。
+  - 列表增强：新增“最后的用户消息”列，从 recent call 的 `request.body` 中解析并显示最后一条 user 文本，兼容 Anthropic `/v1/messages`、OpenAI Chat `messages`、OpenAI Responses `input` 三类格式；列表表格加横向 `scroll`，单元格内容限制为前 100 字并支持纵向滚动。
+  - 流式详情增强：[`RecentCallStreamViewer`](web/src/pages/RecentCalls/index.jsx:150) 改为先展示 `aggregated_text`，再通过外层折叠面板展示 `SSE数据流` 与原始 chunk 文本；展开 `SSE数据流` 后，内部每个 SSE event 仍逐条单独折叠。
+  - SSE 折叠修复：[`SSEViewer`](web/src/components/playground/SSEViewer.jsx:46) 的受控折叠面板改用 `itemKey` 与标准化 `onChange`，修复“点开一个事件会联动展开全部事件”的问题，保留“全部展开 / 全部收起”能力。
 
 4. 【已实现】生成随机兑换码（支持前缀、数量、随机额度区间、并下载 txt 文件）
 
