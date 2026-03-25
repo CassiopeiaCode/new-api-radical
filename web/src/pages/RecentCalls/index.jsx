@@ -165,6 +165,18 @@ function getLastUserMessagePreview(record) {
   return fullText.slice(0, 100);
 }
 
+const compactScrollableCellStyle = {
+  width: '100%',
+  maxWidth: '100%',
+  height: 56,
+  maxHeight: 56,
+  overflowY: 'auto',
+  overflowX: 'auto',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  lineHeight: 1.5,
+};
+
 function RecentCallStreamViewer({ stream }) {
   const chunks = Array.isArray(stream?.chunks) ? stream.chunks : [];
   const aggregatedText = safeString(stream?.aggregated_text);
@@ -500,29 +512,21 @@ export default function RecentCallsPage() {
         title: 'path',
         dataIndex: 'path',
         key: 'path',
-        width: 220,
+        width: 180,
         render: (v) => (
-          <span className='truncate' title={safeString(v)}>{safeString(v)}</span>
+          <div title={safeString(v)} style={compactScrollableCellStyle}>
+            {safeString(v)}
+          </div>
         ),
       },
       {
-        title: '最后的用户消息',
+        title: 'last_user_message',
         key: 'last_user_message',
         width: 260,
         render: (_, r) => {
           const preview = getLastUserMessagePreview(r);
           return (
-            <div
-              title={preview || '无可解析用户消息'}
-              style={{
-                maxHeight: 72,
-                overflowY: 'auto',
-                overflowX: 'hidden',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                lineHeight: 1.5,
-              }}
-            >
+            <div title={preview || '无可解析用户消息'} style={compactScrollableCellStyle}>
               {preview || (
                 <Typography.Text type='tertiary'>-</Typography.Text>
               )}
