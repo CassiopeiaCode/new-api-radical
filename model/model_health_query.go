@@ -18,25 +18,31 @@ type ModelHealthHourlyStat struct {
 }
 
 func hourStartExprSQL(db *gorm.DB) string {
+	return hourStartExprSQLForDialect(dbDialectName(db))
+}
+
+func hourStartExprSQLForDialect(dialectName string) string {
 	// Align 5m slice timestamp (seconds) to hour start, and keep the result INTEGER.
 	// Notes:
 	// - MySQL: `/` is floating division; use `DIV` for integer division.
 	// - SQLite: `/` returns REAL; cast back to INTEGER.
 	// - Postgres: int/int is integer division.
-	if db != nil && db.Dialector != nil {
-		switch db.Dialector.Name() {
-		case "mysql":
-			return "((slice_start_ts DIV 3600) * 3600)"
-		case "sqlite":
-			return "(CAST((slice_start_ts / 3600) AS INTEGER) * 3600)"
-		}
+	switch dialectName {
+	case "mysql":
+		return "((slice_start_ts DIV 3600) * 3600)"
+	case "sqlite":
+		return "(CAST((slice_start_ts / 3600) AS INTEGER) * 3600)"
 	}
 	return "((slice_start_ts / 3600) * 3600)"
 }
 
+func successSliceExprSQL() string {
+	return "CASE WHEN has_success_qualified THEN 1 ELSE 0 END"
+}
+
 func successRateExprSQL() string {
 	// Force float division across DBs (Postgres int/int would otherwise truncate).
-	return "CASE WHEN COUNT(*) = 0 THEN 0 ELSE (1.0 * SUM(has_success_qualified)) / COUNT(*) END"
+	return fmt.Sprintf("CASE WHEN COUNT(*) = 0 THEN 0 ELSE (1.0 * SUM(%s)) / COUNT(*) END", successSliceExprSQL())
 }
 
 func GetModelHealthHourlyStats(db *gorm.DB, modelName string, startHourTs int64, endHourTs int64) ([]ModelHealthHourlyStat, error) {
@@ -55,12 +61,12 @@ func GetModelHealthHourlyStats(db *gorm.DB, modelName string, startHourTs int64,
 		Select(fmt.Sprintf(`
 model_name as model_name,
 %s as hour_start_ts,
-SUM(has_success_qualified) as success_slices,
+SUM(%s) as success_slices,
 COUNT(*) as total_slices,
 %s as success_rate,
 SUM(total_requests) as total_requests,
 SUM(error_requests) as error_requests,
-SUM(total_requests) - SUM(error_requests) as success_requests`, hourStartExprSQL(db), successRateExprSQL())).
+SUM(total_requests) - SUM(error_requests) as success_requests`, hourStartExprSQL(db), successSliceExprSQL(), successRateExprSQL())).
 		Where("model_name = ?", modelName).
 		Where("slice_start_ts >= ? AND slice_start_ts < ?", startHourTs, endHourTs).
 		Group("model_name, hour_start_ts").
@@ -85,12 +91,12 @@ func GetAllModelsHealthHourlyStats(db *gorm.DB, startHourTs int64, endHourTs int
 		Select(fmt.Sprintf(`
 model_name as model_name,
 %s as hour_start_ts,
-SUM(has_success_qualified) as success_slices,
+SUM(%s) as success_slices,
 COUNT(*) as total_slices,
 %s as success_rate,
 SUM(total_requests) as total_requests,
 SUM(error_requests) as error_requests,
-SUM(total_requests) - SUM(error_requests) as success_requests`, hourStartExprSQL(db), successRateExprSQL())).
+SUM(total_requests) - SUM(error_requests) as success_requests`, hourStartExprSQL(db), successSliceExprSQL(), successRateExprSQL())).
 		Where("slice_start_ts >= ? AND slice_start_ts < ?", startHourTs, endHourTs).
 		Group("model_name, hour_start_ts").
 		Order("model_name ASC, hour_start_ts ASC").
@@ -99,4 +105,11 @@ SUM(total_requests) - SUM(error_requests) as success_requests`, hourStartExprSQL
 		return nil, err
 	}
 	return rows, nil
+}
+
+func dbDialectName(db *gorm.DB) string {
+	if db == nil || db.Dialector == nil {
+		return ""
+	}
+	return db.Dialector.Name()
 }

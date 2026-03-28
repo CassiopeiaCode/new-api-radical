@@ -15,6 +15,7 @@
     - `total_requests / error_requests / success_qualified_requests` 累加（见 [`updates`](model/model_health_slice.go:102)）
     - `has_success_qualified` 采用 OR 聚合（见 [`"has_success_qualified": gorm.Expr(...)`](model/model_health_slice.go:106)）
     - `max_response_bytes / max_completion_tokens / max_assistant_chars` 用 `GREATEST` 取最大（见 [`updates`](model/model_health_slice.go:102)）
+    - 数据库兼容：冲突更新引用新插入值时按方言生成 SQL，PostgreSQL 使用 `EXCLUDED.col`，MySQL 保持 `VALUES(col)`，避免 PostgreSQL 下 `VALUES(...)` 报错，同时不改变 MySQL 现有行为。
   - 说明：代码提供了“事件写入器 + 聚合表”的通用能力；调用方在“成功响应/失败响应”处构造 [`model.ModelHealthEvent`](model/model_health_slice.go:33) 并调用 [`model.RecordModelHealthEventAsync()`](model/model_health_writer.go:36) 即可把请求结果滚入 5 分钟切片统计。
 
 - 小时聚合查询（按小时 bucket 计算 success_slices/total_slices/成功率）
@@ -23,6 +24,7 @@
     - 后端查询：[`model.GetModelHealthHourlyStats()`](model/model_health_query.go:42) 从 `model_health_slice_5m` 聚合到小时：
       - 小时桶表达式：[`model.hourStartExprSQL()`](model/model_health_query.go:20) 兼容 mysql/sqlite/postgres（避免整数/浮点除法差异）
       - 成功率表达式：[`model.successRateExprSQL()`](model/model_health_query.go:37) 强制 float 除法避免截断
+      - 布尔聚合兼容：`success_slices / success_rate` 不再直接对 `has_success_qualified` 做 `SUM(bool)`，统一改为 `CASE WHEN has_success_qualified THEN 1 ELSE 0 END` 后再聚合，兼容 PostgreSQL，同时保持 MySQL 结果不变。
     - 返回补齐：当某小时无数据时，API 会补 0 行，保证前端渲染稳定（补齐逻辑见 [`controller.GetModelHealthHourlyStatsAPI()`](controller/model_health.go:111)）。
 
 - 公共页面数据源（无需登录，展示所有模型最近 24h 每小时健康度）
@@ -234,6 +236,7 @@
   - 去重逻辑：后端使用 upsert，按 `(user_id, visitor_id, ip)` 组合去重；命中则更新 `user_agent/updated_at`（实现见 [`model.RecordFingerprint()`](model/user_fingerprint.go:25)）。
   - 保留 5 条：超过 5 个 `ip + visitor_id` 组合记录时，先取第 5 条的 `(updated_at,id)` 作为阈值，再删除更旧的记录（避免 MySQL 下出现仅 `OFFSET` 无 `LIMIT` 的非法 SQL；实现见 [`model.RecordFingerprint()`](model/user_fingerprint.go:25)）。
   - MySQL 迁移：项目启动时会执行 [`DB.AutoMigrate()`](model/main.go:251)，并会尝试创建复合唯一索引 `ux_user_fingerprints_user_visitor_ip`（见 [`model.UserFingerprint`](model/user_fingerprint.go:10) 的 `uniqueIndex` tag），以保证并发下按 `(user_id, visitor_id, ip)` 组合去重正确。
+  - 搜索兼容：管理员搜索 visitor id / username / email 时，后端统一使用 `LOWER(column) LIKE LOWER(?)` 做大小写不敏感匹配，避免 PostgreSQL 默认 `LIKE` 大小写敏感而与 MySQL 行为不一致。
   - 若你是“存量库迁移”且线上账号无建索引权限/或 AutoMigrate 未生效，请手动补该索引（否则可能产生重复行，导致“保留 5 条”失真）：
     ```sql
     ALTER TABLE user_fingerprints

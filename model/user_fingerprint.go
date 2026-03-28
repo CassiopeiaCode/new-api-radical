@@ -229,10 +229,11 @@ func SearchFingerprints(keyword string, pageInfo *common.PageInfo) ([]UserWithFi
 	var total int64
 
 	// 统计总数
+	searchWhere := fingerprintSearchWhereClause()
 	countQuery := `
 		SELECT COUNT(*) FROM user_fingerprints f
 		JOIN users u ON f.user_id = u.id
-		WHERE f.visitor_id LIKE ? OR u.username LIKE ? OR u.email LIKE ?
+		WHERE ` + searchWhere + `
 	`
 	likeKeyword := "%" + keyword + "%"
 	err := DB.Raw(countQuery, likeKeyword, likeKeyword, likeKeyword).Scan(&total).Error
@@ -246,13 +247,17 @@ func SearchFingerprints(keyword string, pageInfo *common.PageInfo) ([]UserWithFi
 			   f.visitor_id, f.created_at as record_time, f.ip
 		FROM user_fingerprints f
 		JOIN users u ON f.user_id = u.id
-		WHERE f.visitor_id LIKE ? OR u.username LIKE ? OR u.email LIKE ?
+		WHERE ` + searchWhere + `
 		ORDER BY f.created_at DESC
 		LIMIT ? OFFSET ?
 	`
 
 	err = DB.Raw(query, likeKeyword, likeKeyword, likeKeyword, pageInfo.GetPageSize(), pageInfo.GetStartIdx()).Scan(&results).Error
 	return results, total, err
+}
+
+func fingerprintSearchWhereClause() string {
+	return "LOWER(f.visitor_id) LIKE LOWER(?) OR LOWER(u.username) LIKE LOWER(?) OR LOWER(u.email) LIKE LOWER(?)"
 }
 
 // GetDuplicateVisitorIds 获取有多个用户使用的visitor id列表（需要visitor_id和ip都相同才算重复）

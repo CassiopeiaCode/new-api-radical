@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -100,13 +101,13 @@ func UpsertModelHealthSlice5m(ctx context.Context, db *gorm.DB, event *ModelHeal
 	}
 
 	updates := map[string]any{
-		"total_requests": gorm.Expr("total_requests + VALUES(total_requests)"),
-		"error_requests": gorm.Expr("error_requests + VALUES(error_requests)"),
-		"success_qualified_requests": gorm.Expr("success_qualified_requests + VALUES(success_qualified_requests)"),
-		"has_success_qualified":      gorm.Expr("has_success_qualified OR VALUES(has_success_qualified)"),
-		"max_response_bytes":         gorm.Expr("GREATEST(max_response_bytes, VALUES(max_response_bytes))"),
-		"max_completion_tokens":      gorm.Expr("GREATEST(max_completion_tokens, VALUES(max_completion_tokens))"),
-		"max_assistant_chars":        gorm.Expr("GREATEST(max_assistant_chars, VALUES(max_assistant_chars))"),
+		"total_requests":             gorm.Expr(fmt.Sprintf("total_requests + %s", conflictValueExpr(db, "total_requests"))),
+		"error_requests":             gorm.Expr(fmt.Sprintf("error_requests + %s", conflictValueExpr(db, "error_requests"))),
+		"success_qualified_requests": gorm.Expr(fmt.Sprintf("success_qualified_requests + %s", conflictValueExpr(db, "success_qualified_requests"))),
+		"has_success_qualified":      gorm.Expr(fmt.Sprintf("has_success_qualified OR %s", conflictValueExpr(db, "has_success_qualified"))),
+		"max_response_bytes":         gorm.Expr(fmt.Sprintf("GREATEST(max_response_bytes, %s)", conflictValueExpr(db, "max_response_bytes"))),
+		"max_completion_tokens":      gorm.Expr(fmt.Sprintf("GREATEST(max_completion_tokens, %s)", conflictValueExpr(db, "max_completion_tokens"))),
+		"max_assistant_chars":        gorm.Expr(fmt.Sprintf("GREATEST(max_assistant_chars, %s)", conflictValueExpr(db, "max_assistant_chars"))),
 	}
 
 	return db.WithContext(ctx).Clauses(clause.OnConflict{
@@ -116,6 +117,17 @@ func UpsertModelHealthSlice5m(ctx context.Context, db *gorm.DB, event *ModelHeal
 		},
 		DoUpdates: clause.Assignments(updates),
 	}).Create(row).Error
+}
+
+func conflictValueExpr(db *gorm.DB, column string) string {
+	return conflictValueExprForDialect(dbDialectName(db), column)
+}
+
+func conflictValueExprForDialect(dialectName string, column string) string {
+	if dialectName == "postgres" {
+		return fmt.Sprintf("EXCLUDED.%s", column)
+	}
+	return fmt.Sprintf("VALUES(%s)", column)
 }
 
 func maxInt(a, b int) int {
