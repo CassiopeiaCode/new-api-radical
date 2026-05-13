@@ -519,7 +519,7 @@
     - OpenAI Chat：[`dto/openai_request.go`](dto/openai_request.go)
     - OpenAI Responses：[`dto/openai_request.go`](dto/openai_request.go)
     - Anthropic Messages / tool-result 语义内容：[`dto/claude.go`](dto/claude.go)
-  - 当前检测器已切换为 gitleaks 库，直接全量使用其默认内嵌规则 [`config/gitleaks.toml`](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml)；我们仅保留“最后 3 条消息提取 + 命中即拦截”的接入层。
+  - 当前检测器以 gitleaks 默认内嵌规则 [`config/gitleaks.toml`](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml) 为主；另外补了一条 `sk-[A-Za-z0-9]{40,}` 的后备规则，用于兜住默认规则未覆盖的 OpenAI 风格长串。
 
 - 前端与设置：
   - 设置字段定义：[`dto/user_settings.go`](dto/user_settings.go)
