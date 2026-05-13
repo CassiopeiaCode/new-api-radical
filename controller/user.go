@@ -1047,9 +1047,9 @@ type UpdateUserSettingRequest struct {
 	GotifyUrl                  string  `json:"gotify_url,omitempty"`
 	GotifyToken                string  `json:"gotify_token,omitempty"`
 	GotifyPriority             int     `json:"gotify_priority,omitempty"`
-	AcceptUnsetModelRatioModel bool    `json:"accept_unset_model_ratio_model"`
-	RecordIpLog                bool    `json:"record_ip_log"`
-	DisableLeakProtectionStrict bool   `json:"disable_leak_protection_strict"`
+	AcceptUnsetModelRatioModel  bool `json:"accept_unset_model_ratio_model"`
+	RecordIpLog                 bool `json:"record_ip_log"`
+	DisableLeakProtectionBalanced bool `json:"disable_leak_protection_balanced"`
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1145,7 +1145,7 @@ func UpdateUserSetting(c *gin.Context) {
 	settings.QuotaWarningThreshold = req.QuotaWarningThreshold
 	settings.AcceptUnsetRatioModel = req.AcceptUnsetModelRatioModel
 	settings.RecordIpLog = req.RecordIpLog
-	settings.DisableLeakProtectionStrict = req.DisableLeakProtectionStrict
+	settings.DisableLeakProtectionBalanced = req.DisableLeakProtectionBalanced
 
 	// 如果是webhook类型,添加webhook相关设置
 	if req.QuotaWarningType == dto.NotifyTypeWebhook {

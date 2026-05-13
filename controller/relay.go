@@ -116,7 +116,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	userSetting, _ := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)
-	if service.IsLeakProtectionStrictEnabled(userSetting) {
+	if service.IsLeakProtectionBalancedEnabled(userSetting) {
 		blocked, reason := service.CheckRequestLeakProtection(request)
 		if blocked {
 			logger.LogWarn(c, "leak protection blocked request: "+reason)
@@ -434,7 +434,7 @@ func recordLeakProtectionBlockedLog(c *gin.Context, reason string) {
 		"error_code":    types.ErrorCodeSensitiveWordsDetected,
 		"status_code":   http.StatusBadRequest,
 		"reject_reason": reason,
-		"blocked_by":    "leak_protection_strict",
+		"blocked_by":    "leak_protection_balanced",
 	}
 	if c.Request != nil && c.Request.URL != nil {
 		other["request_path"] = c.Request.URL.Path

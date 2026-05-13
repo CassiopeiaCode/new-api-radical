@@ -23,8 +23,8 @@ type leakTextFragment struct {
 	Text string
 }
 
-func IsLeakProtectionStrictEnabled(setting dto.UserSetting) bool {
-	return !setting.DisableLeakProtectionStrict
+func IsLeakProtectionBalancedEnabled(setting dto.UserSetting) bool {
+	return !setting.DisableLeakProtectionBalanced
 }
 
 func CheckRequestLeakProtection(request dto.Request) (bool, string) {

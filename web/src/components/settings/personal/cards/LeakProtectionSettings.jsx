@@ -23,8 +23,8 @@ import { ShieldAlert } from 'lucide-react';
 
 const LeakProtectionSettings = ({
   t,
-  strictEnabled,
-  onStrictEnabledChange,
+  balancedEnabled,
+  onBalancedEnabledChange,
   onSave,
 }) => {
   return (
@@ -51,7 +51,7 @@ const LeakProtectionSettings = ({
             </div>
             <div className='min-w-0 flex-1'>
               <Typography.Title heading={6} className='mb-1'>
-                {t('严格模式')}
+                {t('平衡模式')}
               </Typography.Title>
               <Typography.Text type='tertiary' className='text-sm'>
                 {t(
@@ -64,20 +64,20 @@ const LeakProtectionSettings = ({
           <div className='flex flex-col gap-3 rounded-xl bg-gray-50/80 dark:bg-zinc-900/40 p-4 sm:flex-row sm:items-center sm:justify-between'>
             <div className='min-w-0'>
               <Typography.Text className='block font-medium'>
-                {t('启用严格模式')}
+                {t('启用平衡模式')}
               </Typography.Text>
               <Typography.Text type='tertiary' className='text-sm'>
-                {strictEnabled
+                {balancedEnabled
                   ? t('当前会自动拦截疑似泄漏请求')
                   : t('当前不执行防泄漏扫描')}
               </Typography.Text>
             </div>
             <div className='flex-shrink-0'>
               <Switch
-                checked={strictEnabled}
+                checked={balancedEnabled}
                 checkedText={t('开')}
                 uncheckedText={t('关')}
-                onChange={onStrictEnabledChange}
+                onChange={onBalancedEnabledChange}
               />
             </div>
           </div>

@@ -507,11 +507,11 @@
     - `map[string]any` 等非字符串 payload 不再 panic
     - `nil` payload 不再 panic
 
-17. 【已实现】用户级严格防泄漏管理（含前端开关、规则收敛、日志落库与 UI 修正）
+17. 【已实现】用户级平衡防泄漏管理（含前端开关、规则收敛、日志落库与 UI 修正）
 
 - 目标：
-  - 为用户提供默认开启的严格防泄漏扫描；仅扫描最后 3 条 user/tool 等价消息，命中疑似高熵凭据时在转发前直接拦截。
-  - 不新增数据库字段，配置保存在 `user.setting` JSON 的 `disable_leak_protection_strict`。
+  - 为用户提供默认开启的平衡防泄漏扫描；仅扫描最后 3 条 user/tool 等价消息，命中疑似高熵凭据时在转发前直接拦截。
+  - 不新增数据库字段，配置保存在 `user.setting` JSON 的 `disable_leak_protection_balanced`。
 
 - 后端规则与拦截：
   - 入口在 [`controller.Relay()`](controller/relay.go)，由 [`service.CheckRequestLeakProtection()`](service/leak_protection.go) 在请求真正转发前执行。

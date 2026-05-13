@@ -11,11 +11,11 @@ type UserSetting struct {
 	GotifyToken           string  `json:"gotify_token,omitempty"`                   // GotifyToken Gotify应用令牌
 	GotifyPriority        int     `json:"gotify_priority"`                          // GotifyPriority Gotify消息优先级
 	AcceptUnsetRatioModel bool    `json:"accept_unset_model_ratio_model,omitempty"` // AcceptUnsetRatioModel 是否接受未设置价格的模型
-	RecordIpLog           bool    `json:"record_ip_log,omitempty"`                  // 是否记录请求和错误日志IP
-	DisableLeakProtectionStrict bool `json:"disable_leak_protection_strict,omitempty"` // DisableLeakProtectionStrict 是否关闭严格防泄漏扫描
-	SidebarModules        string  `json:"sidebar_modules,omitempty"`                // SidebarModules 左侧边栏模块配置
-	BillingPreference     string  `json:"billing_preference,omitempty"`             // BillingPreference 扣费策略（订阅/钱包）
-	Language              string  `json:"language,omitempty"`                       // Language 用户语言偏好 (zh, en)
+	RecordIpLog                  bool   `json:"record_ip_log,omitempty"`                    // 是否记录请求和错误日志IP
+	DisableLeakProtectionBalanced bool   `json:"disable_leak_protection_balanced,omitempty"` // DisableLeakProtectionBalanced 是否关闭平衡防泄漏扫描
+	SidebarModules               string `json:"sidebar_modules,omitempty"`                  // SidebarModules 左侧边栏模块配置
+	BillingPreference            string `json:"billing_preference,omitempty"`               // BillingPreference 扣费策略（订阅/钱包）
+	Language                     string `json:"language,omitempty"`                         // Language 用户语言偏好 (zh, en)
 }
 
 var (

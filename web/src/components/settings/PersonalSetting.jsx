@@ -89,7 +89,7 @@ const PersonalSetting = () => {
     gotifyPriority: 5,
     acceptUnsetModelRatioModel: false,
     recordIpLog: false,
-    disableLeakProtectionStrict: false,
+    disableLeakProtectionBalanced: false,
   });
 
   useEffect(() => {
@@ -163,8 +163,8 @@ const PersonalSetting = () => {
         acceptUnsetModelRatioModel:
           settings.accept_unset_model_ratio_model || false,
         recordIpLog: settings.record_ip_log || false,
-        disableLeakProtectionStrict:
-          settings.disable_leak_protection_strict || false,
+        disableLeakProtectionBalanced:
+          settings.disable_leak_protection_balanced || false,
       });
     }
   }, [userState?.user?.setting]);
@@ -433,8 +433,8 @@ const PersonalSetting = () => {
         accept_unset_model_ratio_model:
           notificationSettings.acceptUnsetModelRatioModel,
         record_ip_log: notificationSettings.recordIpLog,
-        disable_leak_protection_strict:
-          notificationSettings.disableLeakProtectionStrict,
+        disable_leak_protection_balanced:
+          notificationSettings.disableLeakProtectionBalanced,
       });
 
       if (res.data.success) {
@@ -497,10 +497,12 @@ const PersonalSetting = () => {
             <div className='flex flex-col gap-4 md:gap-6'>
               <LeakProtectionSettings
                 t={t}
-                strictEnabled={!notificationSettings.disableLeakProtectionStrict}
-                onStrictEnabledChange={(value) =>
+                balancedEnabled={
+                  !notificationSettings.disableLeakProtectionBalanced
+                }
+                onBalancedEnabledChange={(value) =>
                   handleNotificationSettingChange(
-                    'disableLeakProtectionStrict',
+                    'disableLeakProtectionBalanced',
                     !value,
                   )
                 }
