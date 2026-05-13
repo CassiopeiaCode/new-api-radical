@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -17,6 +18,7 @@ var (
 	leakProtectionGitleaksConfigOnce sync.Once
 	leakProtectionGitleaksConfig     gitleaksconfig.Config
 	leakProtectionGitleaksConfigErr  error
+	leakProtectionSkTokenPattern     = regexp.MustCompile(`\bsk-[A-Za-z0-9]{40,}\b`)
 )
 
 type leakTextFragment struct {
@@ -237,6 +239,9 @@ func textContainsLeakProtectionSecret(text string) (bool, string) {
 	detector := gitleaksdetect.NewDetector(cfg)
 	findings := detector.DetectString(text)
 	if len(findings) == 0 {
+		if leakProtectionSkTokenPattern.MatchString(text) {
+			return true, "request matched custom sk token fallback rule"
+		}
 		return false, ""
 	}
 	finding := findings[0]
