@@ -544,5 +544,5 @@ func leakProtectionEntropy(candidate string) float64 {
 }
 
 func NewLeakProtectionBlockedError() error {
-	return errors.New("request contains suspected sensitive credentials and was blocked by leak protection")
+	return errors.New("request contains suspected sensitive credentials and was blocked by leak protection; you can disable this protection in Personal Settings if needed")
 }

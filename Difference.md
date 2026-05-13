@@ -531,6 +531,7 @@
 - 使用日志：
   - 命中防泄漏时除系统警告外，还会通过 [`model.RecordErrorLog()`](model/log.go) 写入使用日志（错误日志），便于用户回看被拦截请求。
   - 对应实现位于 [`controller/relay.go`](controller/relay.go) 的 `recordLeakProtectionBlockedLog()`。
+  - 拦截报错文案补充为“可在个人设置中关闭该保护”，对应 [`service.NewLeakProtectionBlockedError()`](service/leak_protection.go)。
 
 - 涉及文件：
   - [`service/leak_protection.go`](service/leak_protection.go)
