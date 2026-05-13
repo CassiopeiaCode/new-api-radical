@@ -38,6 +38,7 @@ import { useTranslation } from 'react-i18next';
 // 导入子组件
 import UserInfoHeader from './personal/components/UserInfoHeader';
 import AccountManagement from './personal/cards/AccountManagement';
+import LeakProtectionSettings from './personal/cards/LeakProtectionSettings';
 import NotificationSettings from './personal/cards/NotificationSettings';
 import PreferencesSettings from './personal/cards/PreferencesSettings';
 import CheckinCalendar from './personal/cards/CheckinCalendar';
@@ -88,6 +89,7 @@ const PersonalSetting = () => {
     gotifyPriority: 5,
     acceptUnsetModelRatioModel: false,
     recordIpLog: false,
+    disableLeakProtectionStrict: false,
   });
 
   useEffect(() => {
@@ -161,6 +163,8 @@ const PersonalSetting = () => {
         acceptUnsetModelRatioModel:
           settings.accept_unset_model_ratio_model || false,
         recordIpLog: settings.record_ip_log || false,
+        disableLeakProtectionStrict:
+          settings.disable_leak_protection_strict || false,
       });
     }
   }, [userState?.user?.setting]);
@@ -429,6 +433,8 @@ const PersonalSetting = () => {
         accept_unset_model_ratio_model:
           notificationSettings.acceptUnsetModelRatioModel,
         record_ip_log: notificationSettings.recordIpLog,
+        disable_leak_protection_strict:
+          notificationSettings.disableLeakProtectionStrict,
       });
 
       if (res.data.success) {
@@ -488,13 +494,27 @@ const PersonalSetting = () => {
               <PreferencesSettings t={t} />
             </div>
 
-            {/* 右侧：其他设置 */}
-            <NotificationSettings
-              t={t}
-              notificationSettings={notificationSettings}
-              handleNotificationSettingChange={handleNotificationSettingChange}
-              saveNotificationSettings={saveNotificationSettings}
-            />
+            <div className='flex flex-col gap-4 md:gap-6'>
+              <LeakProtectionSettings
+                t={t}
+                strictEnabled={!notificationSettings.disableLeakProtectionStrict}
+                onStrictEnabledChange={(value) =>
+                  handleNotificationSettingChange(
+                    'disableLeakProtectionStrict',
+                    !value,
+                  )
+                }
+                onSave={saveNotificationSettings}
+              />
+
+              {/* 右侧：其他设置 */}
+              <NotificationSettings
+                t={t}
+                notificationSettings={notificationSettings}
+                handleNotificationSettingChange={handleNotificationSettingChange}
+                saveNotificationSettings={saveNotificationSettings}
+              />
+            </div>
           </div>
         </div>
       </div>

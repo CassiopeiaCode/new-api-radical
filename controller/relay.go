@@ -115,6 +115,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	userSetting, _ := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)
+	if service.IsLeakProtectionStrictEnabled(userSetting) {
+		blocked, reason := service.CheckRequestLeakProtection(request)
+		if blocked {
+			logger.LogWarn(c, "leak protection blocked request: "+reason)
+			newAPIError = types.NewError(service.NewLeakProtectionBlockedError(), types.ErrorCodeSensitiveWordsDetected, types.ErrOptionWithSkipRetry())
+			return
+		}
+	}
+
 	// Keep an original snapshot so we can re-apply per-channel role mappings on retries.
 	roleSnapshot := service.SnapshotRequestRoles(request)
 
