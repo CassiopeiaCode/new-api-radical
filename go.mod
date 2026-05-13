@@ -47,6 +47,7 @@ require (
 	github.com/tidwall/sjson v1.2.5
 	github.com/tiktoken-go/tokenizer v0.6.2
 	github.com/yapingcat/gomedia v0.0.0-20240906162731-17feea57090c
+	github.com/zricethezav/gitleaks/v8 v8.30.0
 	golang.org/x/crypto v0.45.0
 	golang.org/x/image v0.23.0
 	golang.org/x/net v0.47.0

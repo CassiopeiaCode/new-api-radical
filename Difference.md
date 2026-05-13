@@ -519,7 +519,7 @@
     - OpenAI Chat：[`dto/openai_request.go`](dto/openai_request.go)
     - OpenAI Responses：[`dto/openai_request.go`](dto/openai_request.go)
     - Anthropic Messages / tool-result 语义内容：[`dto/claude.go`](dto/claude.go)
-  - 规则以高熵随机串为主，字段名只降阈值、不单独触发；裸 `uuid`、裸标准 UUID、纯数字、日期/时间/版本号、URL、自然词、类单词串可豁免；`abc-uuid` / `abc_uuid` 这类复合 UUID 串可直接拦。
+  - 当前检测器已切换为 gitleaks 库，直接全量使用其默认内嵌规则 [`config/gitleaks.toml`](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml)；我们仅保留“最后 3 条消息提取 + 命中即拦截”的接入层。
 
 - 前端与设置：
   - 设置字段定义：[`dto/user_settings.go`](dto/user_settings.go)
@@ -541,6 +541,7 @@
   - [`dto/openai_request.go`](dto/openai_request.go)
   - [`dto/claude.go`](dto/claude.go)
   - [`model/log.go`](model/log.go)
+  - [`go.mod`](go.mod)
   - [`web/src/components/settings/PersonalSetting.jsx`](web/src/components/settings/PersonalSetting.jsx)
   - [`web/src/components/settings/personal/cards/LeakProtectionSettings.jsx`](web/src/components/settings/personal/cards/LeakProtectionSettings.jsx)
 

@@ -2,27 +2,21 @@ package service
 
 import (
 	"errors"
-	"math"
-	"net/url"
-	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	gitleaksconfig "github.com/zricethezav/gitleaks/v8/config"
+	gitleaksdetect "github.com/zricethezav/gitleaks/v8/detect"
 )
 
 const leakProtectionScanLimit = 3
 
 var (
-	leakCandidatePattern    = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9+/_=.\-]{7,}`)
-	leakUUIDPattern         = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	leakDatePattern         = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	leakTimePattern         = regexp.MustCompile(`^\d{1,2}:\d{2}(:\d{2})?$`)
-	leakVersionPattern      = regexp.MustCompile(`(?i)^v?\d+(\.\d+){1,3}([\-_.]?[a-z0-9]+)?$`)
-	leakCredentialHintWords = []string{
-		"api_key", "apikey", "token", "secret", "password", "passwd", "authorization",
-		"auth", "bearer", "cookie", "session", "credential", "private_key", "access_key",
-	}
+	leakProtectionGitleaksConfigOnce sync.Once
+	leakProtectionGitleaksConfig     gitleaksconfig.Config
+	leakProtectionGitleaksConfigErr  error
 )
 
 type leakTextFragment struct {
@@ -36,8 +30,8 @@ func IsLeakProtectionStrictEnabled(setting dto.UserSetting) bool {
 func CheckRequestLeakProtection(request dto.Request) (bool, string) {
 	fragments := extractLeakProtectionTexts(request)
 	for _, fragment := range fragments {
-		if textContainsLeakProtectionSecret(fragment.Text) {
-			return true, "request contains high-entropy credential-like content"
+		if blocked, reason := textContainsLeakProtectionSecret(fragment.Text); blocked {
+			return true, reason
 		}
 	}
 	return false, ""
@@ -234,313 +228,37 @@ func serializeLeakProtectionValue(value any) string {
 	return strings.TrimSpace(string(data))
 }
 
-func textContainsLeakProtectionSecret(text string) bool {
-	for _, raw := range leakCandidatePattern.FindAllString(text, -1) {
-		candidate := strings.Trim(raw, "\"'")
-		candidate = strings.Trim(candidate, "[](){}<>,;")
-		if isLeakProtectionSafeCandidate(candidate) {
-			continue
-		}
-		if isLeakProtectionUUIDComposite(candidate) {
-			return true
-		}
-		if isHighEntropyLeakProtectionCandidate(candidate, hasLeakProtectionCredentialHint(text, candidate)) {
-			return true
-		}
+func textContainsLeakProtectionSecret(text string) (bool, string) {
+	cfg, err := getLeakProtectionGitleaksConfig()
+	if err != nil {
+		common.SysError("failed to initialize gitleaks config for leak protection: " + err.Error())
+		return false, ""
 	}
-	return false
+	detector := gitleaksdetect.NewDetector(cfg)
+	findings := detector.DetectString(text)
+	if len(findings) == 0 {
+		return false, ""
+	}
+	finding := findings[0]
+	if finding.RuleID != "" {
+		return true, "request matched gitleaks rule " + finding.RuleID
+	}
+	if finding.Description != "" {
+		return true, "request matched gitleaks rule: " + finding.Description
+	}
+	return true, "request matched gitleaks default config"
 }
 
-func isLeakProtectionSafeCandidate(candidate string) bool {
-	if candidate == "" {
-		return true
-	}
-	lower := strings.ToLower(candidate)
-	if lower == "uuid" {
-		return true
-	}
-	if isLeakProtectionNumericOnly(candidate) {
-		return true
-	}
-	if leakUUIDPattern.MatchString(candidate) {
-		return true
-	}
-	if leakDatePattern.MatchString(candidate) || leakTimePattern.MatchString(candidate) || leakVersionPattern.MatchString(candidate) {
-		return true
-	}
-	if isLeakProtectionURL(candidate) {
-		return true
-	}
-	if isLeakProtectionNaturalWord(candidate) {
-		return true
-	}
-	if isLeakProtectionWordLikeCandidate(candidate) {
-		return true
-	}
-	return false
-}
-
-func isLeakProtectionUUIDComposite(candidate string) bool {
-	lower := strings.ToLower(candidate)
-	if lower == "uuid" {
-		return false
-	}
-	return strings.Contains(lower, "uuid") && (strings.Contains(candidate, "-") || strings.Contains(candidate, "_") || strings.Contains(candidate, ":"))
-}
-
-func hasLeakProtectionCredentialHint(text string, candidate string) bool {
-	lowerText := strings.ToLower(text)
-	lowerCandidate := strings.ToLower(candidate)
-	idx := strings.Index(lowerText, lowerCandidate)
-	if idx < 0 {
-		return false
-	}
-	start := idx - 48
-	if start < 0 {
-		start = 0
-	}
-	end := idx + len(lowerCandidate) + 48
-	if end > len(lowerText) {
-		end = len(lowerText)
-	}
-	window := lowerText[start:end]
-	for _, hint := range leakCredentialHintWords {
-		if strings.Contains(window, hint) {
-			return true
+func getLeakProtectionGitleaksConfig() (gitleaksconfig.Config, error) {
+	leakProtectionGitleaksConfigOnce.Do(func() {
+		detector, err := gitleaksdetect.NewDetectorDefaultConfig()
+		if err != nil {
+			leakProtectionGitleaksConfigErr = err
+			return
 		}
-	}
-	return false
-}
-
-func isHighEntropyLeakProtectionCandidate(candidate string, hasHint bool) bool {
-	if len(candidate) < 8 || isLeakProtectionNumericOnly(candidate) {
-		return false
-	}
-	classCount := leakProtectionClassCount(candidate)
-	entropy := leakProtectionEntropy(candidate)
-
-	switch {
-	case len(candidate) >= 24:
-		return classCount >= 2 && entropy >= 3.0
-	case len(candidate) >= 16:
-		threshold := 3.3
-		if hasHint {
-			threshold = 3.0
-		}
-		return classCount >= 2 && entropy >= threshold
-	case len(candidate) >= 12:
-		threshold := 3.5
-		if hasHint {
-			threshold = 3.1
-		}
-		return classCount >= 3 && entropy >= threshold
-	default:
-		threshold := 3.8
-		if hasHint {
-			threshold = 3.35
-		}
-		return classCount >= 3 && entropy >= threshold
-	}
-}
-
-func isLeakProtectionNumericOnly(candidate string) bool {
-	for _, r := range candidate {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func isLeakProtectionURL(candidate string) bool {
-	if !strings.Contains(candidate, "://") {
-		return false
-	}
-	parsed, err := url.Parse(candidate)
-	return err == nil && parsed.Scheme != "" && parsed.Host != ""
-}
-
-func isLeakProtectionNaturalWord(candidate string) bool {
-	hasLetter := false
-	for _, r := range candidate {
-		switch {
-		case r >= 'a' && r <= 'z':
-			hasLetter = true
-		case r >= 'A' && r <= 'Z':
-			hasLetter = true
-		default:
-			return false
-		}
-	}
-	return hasLetter
-}
-
-func isLeakProtectionWordLikeCandidate(candidate string) bool {
-	if candidate == "" {
-		return false
-	}
-	if strings.ContainsAny(candidate, "+/=:") {
-		return false
-	}
-	if len(candidate) > 24 {
-		return false
-	}
-
-	normalized := splitLeakProtectionWordLikeCandidate(candidate)
-	if len(normalized) == 0 {
-		return false
-	}
-
-	alphaChunks := 0
-	digitLen := 0
-	for _, chunk := range normalized {
-		if chunk == "" {
-			continue
-		}
-		if isLeakProtectionNumericOnly(chunk) {
-			digitLen += len(chunk)
-			continue
-		}
-		if !isLeakProtectionNaturalWord(chunk) {
-			return false
-		}
-		if !isLeakProtectionAlphaWordLike(chunk) {
-			return false
-		}
-		alphaChunks++
-	}
-	if alphaChunks == 0 {
-		return false
-	}
-	if digitLen > 4 {
-		return false
-	}
-	return true
-}
-
-func splitLeakProtectionWordLikeCandidate(candidate string) []string {
-	parts := strings.FieldsFunc(candidate, func(r rune) bool {
-		return r == '-' || r == '_' || r == '.'
+		leakProtectionGitleaksConfig = detector.Config
 	})
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		var current []rune
-		var currentKind int
-		flush := func() {
-			if len(current) == 0 {
-				return
-			}
-			result = append(result, string(current))
-			current = nil
-			currentKind = 0
-		}
-		for _, r := range part {
-			kind := 3
-			switch {
-			case r >= '0' && r <= '9':
-				kind = 1
-			case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
-				kind = 2
-			}
-			if kind == 3 {
-				return nil
-			}
-			if currentKind != 0 && kind != currentKind {
-				flush()
-			}
-			current = append(current, r)
-			currentKind = kind
-		}
-		flush()
-	}
-	return result
-}
-
-func isLeakProtectionAlphaWordLike(chunk string) bool {
-	if len(chunk) < 3 {
-		return false
-	}
-	lower := strings.ToLower(chunk)
-	vowels := 0
-	unique := make(map[rune]struct{})
-	repeatRun := 1
-	maxRepeatRun := 1
-	var prev rune
-	for i, r := range lower {
-		unique[r] = struct{}{}
-		switch r {
-		case 'a', 'e', 'i', 'o', 'u':
-			vowels++
-		}
-		if i > 0 {
-			if r == prev {
-				repeatRun++
-				if repeatRun > maxRepeatRun {
-					maxRepeatRun = repeatRun
-				}
-			} else {
-				repeatRun = 1
-			}
-		}
-		prev = r
-	}
-	if vowels == 0 {
-		return false
-	}
-	if maxRepeatRun > 2 {
-		return false
-	}
-	return len(unique) >= 3
-}
-
-func leakProtectionClassCount(candidate string) int {
-	var hasLower, hasUpper, hasDigit, hasSpecial bool
-	for _, r := range candidate {
-		switch {
-		case r >= 'a' && r <= 'z':
-			hasLower = true
-		case r >= 'A' && r <= 'Z':
-			hasUpper = true
-		case r >= '0' && r <= '9':
-			hasDigit = true
-		default:
-			hasSpecial = true
-		}
-	}
-	count := 0
-	if hasLower {
-		count++
-	}
-	if hasUpper {
-		count++
-	}
-	if hasDigit {
-		count++
-	}
-	if hasSpecial {
-		count++
-	}
-	return count
-}
-
-func leakProtectionEntropy(candidate string) float64 {
-	if candidate == "" {
-		return 0
-	}
-	freq := make(map[rune]int)
-	for _, r := range candidate {
-		freq[r]++
-	}
-	length := float64(len([]rune(candidate)))
-	entropy := 0.0
-	for _, count := range freq {
-		p := float64(count) / length
-		entropy -= p * math.Log2(p)
-	}
-	return entropy
+	return leakProtectionGitleaksConfig, leakProtectionGitleaksConfigErr
 }
 
 func NewLeakProtectionBlockedError() error {
