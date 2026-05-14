@@ -520,6 +520,7 @@
     - OpenAI Responses：[`dto/openai_request.go`](dto/openai_request.go)
     - Anthropic Messages / tool-result 语义内容：[`dto/claude.go`](dto/claude.go)
   - 当前检测器以 gitleaks 默认内嵌规则 [`config/gitleaks.toml`](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml) 为主；另外补了一条 `sk-[A-Za-z0-9]{40,}` 的后备规则，用于兜住默认规则未覆盖的 OpenAI 风格长串。
+  - 除 OpenAI Chat / Responses 与 Anthropic 外，Gemini 请求也已接入同一套审核；其余尚未单独适配的请求类型，会回退扫描 `GetTokenCountMeta().CombineText`，避免出现“有文本输入但完全不审核”的渠道盲区。
 
 - 前端与设置：
   - 设置字段定义：[`dto/user_settings.go`](dto/user_settings.go)

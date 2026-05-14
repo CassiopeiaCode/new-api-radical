@@ -47,8 +47,14 @@ func extractLeakProtectionTexts(request dto.Request) []leakTextFragment {
 		return extractResponsesTexts(r)
 	case *dto.ClaudeRequest:
 		return extractClaudeTexts(r)
+	case *dto.GeminiChatRequest:
+		return extractGeminiTexts(r)
+	case *dto.GeminiEmbeddingRequest:
+		return extractGenericRequestTexts(r)
+	case *dto.GeminiBatchEmbeddingRequest:
+		return extractGenericRequestTexts(r)
 	default:
-		return nil
+		return extractGenericRequestTexts(request)
 	}
 }
 
@@ -194,6 +200,64 @@ func extractClaudeMessageText(message dto.ClaudeMessage) string {
 		}
 	}
 	return strings.Join(dedupLeakProtectionTexts(texts), "\n")
+}
+
+func extractGeminiTexts(request *dto.GeminiChatRequest) []leakTextFragment {
+	fragments := make([]leakTextFragment, 0, leakProtectionScanLimit)
+	if request == nil {
+		return fragments
+	}
+
+	appendFromContents := func(contents []dto.GeminiChatContent) {
+		for i := len(contents) - 1; i >= 0 && len(fragments) < leakProtectionScanLimit; i-- {
+			role := strings.ToLower(strings.TrimSpace(contents[i].Role))
+			if role != "" && role != "user" {
+				continue
+			}
+			text := extractGeminiContentText(contents[i])
+			if text == "" {
+				continue
+			}
+			fragments = append(fragments, leakTextFragment{Text: text})
+		}
+	}
+
+	appendFromContents(request.Contents)
+	for i := len(request.Requests) - 1; i >= 0 && len(fragments) < leakProtectionScanLimit; i-- {
+		appendFromContents(request.Requests[i].Contents)
+	}
+	return fragments
+}
+
+func extractGeminiContentText(content dto.GeminiChatContent) string {
+	texts := make([]string, 0, len(content.Parts))
+	for _, part := range content.Parts {
+		if text := strings.TrimSpace(part.Text); text != "" {
+			texts = append(texts, text)
+		}
+		if part.FunctionResponse != nil {
+			if serialized := serializeLeakProtectionValue(part.FunctionResponse.Response); serialized != "" {
+				texts = append(texts, serialized)
+			}
+		}
+		if part.FunctionCall != nil {
+			if serialized := serializeLeakProtectionValue(part.FunctionCall.Arguments); serialized != "" {
+				texts = append(texts, serialized)
+			}
+		}
+	}
+	return strings.Join(dedupLeakProtectionTexts(texts), "\n")
+}
+
+func extractGenericRequestTexts(request dto.Request) []leakTextFragment {
+	if request == nil {
+		return nil
+	}
+	meta := request.GetTokenCountMeta()
+	if meta == nil || strings.TrimSpace(meta.CombineText) == "" {
+		return nil
+	}
+	return []leakTextFragment{{Text: meta.CombineText}}
 }
 
 func dedupLeakProtectionTexts(texts []string) []string {
