@@ -548,3 +548,24 @@
 
 - CI：
   - 新增 [`CI workflow`](.github/workflows/ci.yml)，远端校验前端构建与 `go test ./...`，用于补足本机无 Bun / Go 的场景。
+
+18. 【已实现】客户端断开后停止外层重试，避免无接收方请求继续放大
+
+- 目标：
+  - 当下游客户端连接已经关闭时，外层 relay 重试循环不再继续选择渠道或发起下一次上游请求。
+  - 解决非流式请求在客户端断开后，仍可能因上游返回可重试错误而继续重试的问题。
+
+- 实现：
+  - 在 [`controller.Relay()`](controller/relay.go) 的普通 relay 外层重试循环中增加断开检查：
+    - 每轮开始前先检查 `c.Request.Context().Err()`，若客户端已断开则直接退出循环，避免再选渠道/读 body/发起上游请求。
+    - 单次上游调用返回错误并完成错误记录后，再次检查客户端是否已断开；若已断开，则跳过 `shouldRetry` 与后续 retry sleep，确保不会进入下一轮。
+  - 在 [`controller.RelayTask()`](controller/relay.go) 的 task relay 重试循环中同步增加相同保护，避免异步任务提交类请求在客户端断开后继续重试提交。
+  - 新增内部 helper [`shouldStopRetryForClientDisconnect()`](controller/relay.go)，统一判断 `c.Request.Context().Err()` 并记录 `client disconnected, stop relay retry` 日志，避免普通 relay 与 task relay 两处重复实现。
+
+- 行为说明：
+  - 该修改只阻止“下一次重试”；当前已经发出的上游请求是否立即取消，仍取决于对应上游请求是否绑定客户端 context。
+  - 流式路径原本已在 stream scanner 中监听 `c.Request.Context().Done()`，本次修改补齐的是外层 retry loop 的统一兜底。
+  - 自适应重试延时仍保留原有行为；但即使当前 retry delay 为 0，也会因为新增显式检查而停止继续重试。
+
+- 验证：
+  - 新增 [`controller/relay_retry_test.go`](controller/relay_retry_test.go)，覆盖请求 context 未取消时不拦截、取消后拦截重试的 helper 行为。
