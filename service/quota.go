@@ -242,6 +242,12 @@ func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, 
 
 	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
 	promptTokens := usage.PromptTokens
+	if promptTokens == 0 && relayInfo.GetEstimatePromptTokens() > 0 {
+		promptTokens = relayInfo.GetEstimatePromptTokens()
+		usage.PromptTokens = promptTokens
+		usage.TotalTokens = promptTokens + usage.CompletionTokens
+		common.SetContextKey(ctx, constant.ContextKeyLocalCountTokens, true)
+	}
 	completionTokens := usage.CompletionTokens
 	modelName := relayInfo.OriginModelName
 

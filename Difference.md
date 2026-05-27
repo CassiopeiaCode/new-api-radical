@@ -569,3 +569,21 @@
 
 - 验证：
   - 新增 [`controller/relay_retry_test.go`](controller/relay_retry_test.go)，覆盖请求 context 未取消时不拦截、取消后拦截重试的 helper 行为。
+
+19. 【已实现】Claude 输入 token 为 0 时按本地估算 token 兜底计费
+
+- 目标：
+  - Claude 格式请求在部分上游/转换链路下可能返回 `input_tokens=0` 或缺失输入 token，导致消费日志与计费中的输入 token 变成 0。
+  - 当请求前已经完成本地 token 估算时，若 Claude 响应 usage 的输入 token 为 0，则使用估算值作为 prompt/input token 参与计费与日志记录。
+
+- 实现：
+  - 在 [`service.PostClaudeConsumeQuota()`](service/quota.go) 的 Claude 计费入口增加兜底：
+    - `usage.PromptTokens == 0`
+    - 且 [`relayInfo.GetEstimatePromptTokens()`](relay/common/relay_info.go) 大于 0
+    - 则把 `promptTokens` 与 `usage.PromptTokens` 更新为估算值，并重算 `usage.TotalTokens`
+  - 同时设置 [`constant.ContextKeyLocalCountTokens`](constant/context_key.go)，让消费日志 `other.admin_info.local_count_tokens=true` 标识本次 token 来自本地估算。
+
+- 行为说明：
+  - 只在 Claude 输入 token 为 0 时触发，不覆盖上游返回的正常非 0 usage。
+  - 缓存 token、cache creation token、completion token 仍按上游返回值处理；本次只补齐缺失的输入 token。
+  - 若本地估算也为 0（例如关闭 `CountToken`），则保持原行为，不强行收费。
