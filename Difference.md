@@ -587,3 +587,43 @@
   - 只在 Claude 输入 token 为 0 时触发，不覆盖上游返回的正常非 0 usage。
   - 缓存 token、cache creation token、completion token 仍按上游返回值处理；本次只补齐缺失的输入 token。
   - 若本地估算也为 0（例如关闭 `CountToken`），则保持原行为，不强行收费。
+
+20. 【已实现】易支付主动查单补单（自动近 10 分钟补偿 + 管理员全量扫描接口）
+
+- 目标：
+  - 解决易支付平台已支付成功但异步 notify 未到达站点时，充值订单长期停留在 `pending` 的问题。
+  - 自动任务只处理低风险的“最近 10 分钟内 pending 充值”；历史积压订单通过管理员主动接口按需扫描，避免一次性打爆支付平台查单接口。
+
+- 主动查单：
+  - 新增 [`service.QueryEpayOrder()`](service/epay_reconcile.go) 调用易支付查单接口：
+    - 根据当前 `PayAddress` 推导 `/api.php`
+    - 请求参数为 `act=order&pid=...&key=...&out_trade_no=...`
+    - 返回结构映射为 [`service.EpayOrderQueryResult`](service/epay_reconcile.go)
+  - 查单 HTTP 超时默认 15 秒，可通过环境变量 `EPAY_ORDER_RECONCILE_HTTP_TIMEOUT_SECONDS` 调整。
+
+- 自动补单任务：
+  - 启动入口：[`service.StartEpayOrderReconcileTask()`](service/epay_reconcile.go)，在 [`main.go`](main.go) 中注册。
+  - 默认关闭，需设置 `EPAY_ORDER_RECONCILE_ENABLED=true` 才启用。
+  - 任务每分钟执行一次，只扫描 `top_ups.status=pending` 且 `payment_method=epay` 的最近窗口订单。
+  - 自动窗口默认 10 分钟：`EPAY_ORDER_RECONCILE_AUTO_WINDOW_SECONDS=600`。
+  - 每轮批量大小默认 100：`EPAY_ORDER_RECONCILE_BATCH_SIZE=100`。
+
+- 管理员主动全量扫描接口：
+  - 新增路由：`POST /api/user/topup/epay/reconcile`，挂在管理员用户路由下（[`router.SetApiRouter()`](router/api-router.go)）。
+  - 控制器：[`controller.AdminReconcileEpayTopUps()`](controller/topup.go)。
+  - 请求参数：
+    - `dry_run`：默认 `true`，只查平台状态并返回将要执行的动作；传 `false` 才真正补单。
+    - `limit`：限制本次扫描条数；传负数可全量扫描匹配范围。
+    - `max_age_seconds` / `max_age_days`：只扫描指定时间范围内的 pending 订单。
+    - `min_age_seconds`：跳过太新的订单。
+  - 返回 [`service.EpayReconcileReport`](service/epay_reconcile.go)，包含 `scanned/queried/completed/skipped/failed` 与每笔订单的 `action`。
+
+- 入账安全：
+  - 只在平台返回 `code=1` 且 `status=1` 时补单。
+  - 补单前校验：
+    - 平台 `out_trade_no` 必须等于本地订单号
+    - 平台 `pid` 必须等于当前商户号
+    - 平台 `money` 必须与本地 `top_ups.money` 匹配
+  - 平台 `status=0`、失败、退款或未支付类状态不会改本地订单状态，只在报告中标记 `provider_pending` 等跳过动作。
+  - 入账函数 [`model.CompleteEpayTopUpByQuery()`](model/topup.go) 使用事务和行级锁读取订单，只有 `pending` 的 `epay` 订单会完成；已成功订单直接幂等返回，避免 notify 与主动查单并发导致重复加额度。
+  - 原异步回调 [`controller.EpayNotify()`](controller/topup.go) 也改为复用同一个完成函数，统一幂等补单路径。

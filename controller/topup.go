@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -282,31 +281,15 @@ func EpayNotify(c *gin.Context) {
 		log.Println(verifyInfo)
 		LockOrder(verifyInfo.ServiceTradeNo)
 		defer UnlockOrder(verifyInfo.ServiceTradeNo)
-		topUp := model.GetTopUpByTradeNo(verifyInfo.ServiceTradeNo)
-		if topUp == nil {
+		if model.GetTopUpByTradeNo(verifyInfo.ServiceTradeNo) == nil {
 			log.Printf("易支付回调未找到订单: %v", verifyInfo)
 			return
 		}
-		if topUp.Status == "pending" {
-			topUp.Status = "success"
-			err := topUp.Update()
-			if err != nil {
-				log.Printf("易支付回调更新订单失败: %v", topUp)
-				return
-			}
-			//user, _ := model.GetUserById(topUp.UserId, false)
-			//user.Quota += topUp.Amount * 500000
-			dAmount := decimal.NewFromInt(int64(topUp.Amount))
-			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-			quotaToAdd := int(dAmount.Mul(dQuotaPerUnit).IntPart())
-			err = model.IncreaseUserQuota(topUp.UserId, quotaToAdd, true)
-			if err != nil {
-				log.Printf("易支付回调更新用户失败: %v", topUp)
-				return
-			}
-			log.Printf("易支付回调更新用户成功 %v", topUp)
-			model.RecordLog(topUp.UserId, model.LogTypeTopup, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(quotaToAdd), topUp.Money))
+		if err := model.CompleteEpayTopUpByQuery(verifyInfo.ServiceTradeNo, ""); err != nil {
+			log.Printf("易支付回调更新订单失败: trade_no=%s err=%v", verifyInfo.ServiceTradeNo, err)
+			return
 		}
+		log.Printf("易支付回调更新用户成功 trade_no=%s", verifyInfo.ServiceTradeNo)
 	} else {
 		log.Printf("易支付异常回调: %v", verifyInfo)
 	}
@@ -392,6 +375,14 @@ type AdminCompleteTopupRequest struct {
 	TradeNo string `json:"trade_no"`
 }
 
+type AdminReconcileEpayTopUpsRequest struct {
+	Limit         int   `json:"limit"`
+	MinAgeSeconds int64 `json:"min_age_seconds"`
+	MaxAgeSeconds int64 `json:"max_age_seconds"`
+	MaxAgeDays    int64 `json:"max_age_days"`
+	DryRun        *bool `json:"dry_run"`
+}
+
 // AdminCompleteTopUp 管理员补单接口
 func AdminCompleteTopUp(c *gin.Context) {
 	var req AdminCompleteTopupRequest
@@ -409,4 +400,26 @@ func AdminCompleteTopUp(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
+}
+
+func AdminReconcileEpayTopUps(c *gin.Context) {
+	var req AdminReconcileEpayTopUpsRequest
+	_ = c.ShouldBindJSON(&req)
+
+	dryRun := true
+	if req.DryRun != nil {
+		dryRun = *req.DryRun
+	}
+	maxAgeSeconds := req.MaxAgeSeconds
+	if maxAgeSeconds <= 0 && req.MaxAgeDays > 0 {
+		maxAgeSeconds = req.MaxAgeDays * 24 * 3600
+	}
+
+	report := service.ReconcilePendingEpayTopUps(service.EpayReconcileOptions{
+		Limit:         req.Limit,
+		MinAgeSeconds: req.MinAgeSeconds,
+		MaxAgeSeconds: maxAgeSeconds,
+		DryRun:        dryRun,
+	})
+	common.ApiSuccess(c, report)
 }
