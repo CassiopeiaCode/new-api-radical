@@ -829,6 +829,19 @@ func TestRemoveDisabledFieldsDefaultFiltering(t *testing.T) {
 	assertJSONEqual(t, `{"store":true}`, string(out))
 }
 
+func TestRemoveDisabledFieldsNoTargetFieldsReturnsOriginalBytes(t *testing.T) {
+	input := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}`)
+	settings := dto.ChannelOtherSettings{}
+
+	out, err := RemoveDisabledFields(input, settings, false)
+	if err != nil {
+		t.Fatalf("RemoveDisabledFields returned error: %v", err)
+	}
+	if string(out) != string(input) {
+		t.Fatalf("expected original JSON bytes, got %s", string(out))
+	}
+}
+
 func TestRemoveDisabledFieldsAllowInferenceGeo(t *testing.T) {
 	input := `{
 		"inference_geo":"eu",

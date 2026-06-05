@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type ThinkingContentInfo struct {
@@ -737,62 +740,88 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 		return jsonData, nil
 	}
 
-	var data map[string]interface{}
-	if err := common.Unmarshal(jsonData, &data); err != nil {
-		common.SysError("RemoveDisabledFields Unmarshal error :" + err.Error())
-		return jsonData, nil
+	filtered := jsonData
+	changed := false
+
+	deletePath := func(path string, marker []byte) error {
+		if !bytes.Contains(jsonData, marker) || !gjson.GetBytes(filtered, path).Exists() {
+			return nil
+		}
+		next, err := sjson.DeleteBytes(filtered, path)
+		if err != nil {
+			return err
+		}
+		filtered = next
+		changed = true
+		return nil
 	}
 
 	// 默认移除 service_tier，除非明确允许（避免额外计费风险）
 	if !channelOtherSettings.AllowServiceTier {
-		if _, exists := data["service_tier"]; exists {
-			delete(data, "service_tier")
+		if err := deletePath("service_tier", []byte(`"service_tier"`)); err != nil {
+			common.SysError("RemoveDisabledFields delete service_tier error :" + err.Error())
+			return jsonData, nil
 		}
 	}
 
 	// 默认移除 inference_geo，除非明确允许（避免在未授权情况下透传数据驻留区域）
 	if !channelOtherSettings.AllowInferenceGeo {
-		if _, exists := data["inference_geo"]; exists {
-			delete(data, "inference_geo")
+		if err := deletePath("inference_geo", []byte(`"inference_geo"`)); err != nil {
+			common.SysError("RemoveDisabledFields delete inference_geo error :" + err.Error())
+			return jsonData, nil
 		}
 	}
 
 	// 默认允许 store 透传，除非明确禁用（禁用可能影响 Codex 使用）
 	if channelOtherSettings.DisableStore {
-		if _, exists := data["store"]; exists {
-			delete(data, "store")
+		if err := deletePath("store", []byte(`"store"`)); err != nil {
+			common.SysError("RemoveDisabledFields delete store error :" + err.Error())
+			return jsonData, nil
 		}
 	}
 
 	// 默认移除 safety_identifier，除非明确允许（保护用户隐私，避免向 OpenAI 报告用户信息）
 	if !channelOtherSettings.AllowSafetyIdentifier {
-		if _, exists := data["safety_identifier"]; exists {
-			delete(data, "safety_identifier")
+		if err := deletePath("safety_identifier", []byte(`"safety_identifier"`)); err != nil {
+			common.SysError("RemoveDisabledFields delete safety_identifier error :" + err.Error())
+			return jsonData, nil
 		}
 	}
 
 	// 默认移除 stream_options.include_obfuscation，除非明确允许（避免关闭响应流混淆保护）
-	if !channelOtherSettings.AllowIncludeObfuscation {
-		if streamOptionsAny, exists := data["stream_options"]; exists {
-			if streamOptions, ok := streamOptionsAny.(map[string]interface{}); ok {
-				if _, includeExists := streamOptions["include_obfuscation"]; includeExists {
-					delete(streamOptions, "include_obfuscation")
+	if !channelOtherSettings.AllowIncludeObfuscation &&
+		bytes.Contains(jsonData, []byte(`"include_obfuscation"`)) &&
+		gjson.GetBytes(filtered, "stream_options.include_obfuscation").Exists() {
+		next, err := sjson.DeleteBytes(filtered, "stream_options.include_obfuscation")
+		if err != nil {
+			common.SysError("RemoveDisabledFields delete stream_options.include_obfuscation error :" + err.Error())
+			return jsonData, nil
+		}
+		filtered = next
+		changed = true
+
+		streamOptions := gjson.GetBytes(filtered, "stream_options")
+		if streamOptions.Exists() && streamOptions.IsObject() {
+			hasField := false
+			streamOptions.ForEach(func(_, _ gjson.Result) bool {
+				hasField = true
+				return false
+			})
+			if !hasField {
+				next, err = sjson.DeleteBytes(filtered, "stream_options")
+				if err != nil {
+					common.SysError("RemoveDisabledFields delete empty stream_options error :" + err.Error())
+					return jsonData, nil
 				}
-				if len(streamOptions) == 0 {
-					delete(data, "stream_options")
-				} else {
-					data["stream_options"] = streamOptions
-				}
+				filtered = next
 			}
 		}
 	}
 
-	jsonDataAfter, err := common.Marshal(data)
-	if err != nil {
-		common.SysError("RemoveDisabledFields Marshal error :" + err.Error())
+	if !changed {
 		return jsonData, nil
 	}
-	return jsonDataAfter, nil
+	return filtered, nil
 }
 
 // RemoveGeminiDisabledFields removes disabled fields from Gemini request JSON data

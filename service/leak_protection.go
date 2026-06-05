@@ -19,6 +19,7 @@ var (
 	leakProtectionGitleaksConfig     gitleaksconfig.Config
 	leakProtectionGitleaksConfigErr  error
 	leakProtectionSkTokenPattern     = regexp.MustCompile(`\bsk-[A-Za-z0-9]{40,}\b`)
+	leakProtectionDetectorPool       sync.Pool
 )
 
 type leakTextFragment struct {
@@ -295,12 +296,18 @@ func serializeLeakProtectionValue(value any) string {
 }
 
 func textContainsLeakProtectionSecret(text string) (bool, string) {
-	cfg, err := getLeakProtectionGitleaksConfig()
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false, ""
+	}
+
+	detector, err := getLeakProtectionDetector()
 	if err != nil {
 		common.SysError("failed to initialize gitleaks config for leak protection: " + err.Error())
 		return false, ""
 	}
-	detector := gitleaksdetect.NewDetector(cfg)
+	defer leakProtectionDetectorPool.Put(detector)
+
 	findings := detector.DetectString(text)
 	if len(findings) == 0 {
 		if leakProtectionSkTokenPattern.MatchString(text) {
@@ -316,6 +323,17 @@ func textContainsLeakProtectionSecret(text string) (bool, string) {
 		return true, "request matched gitleaks rule: " + finding.Description
 	}
 	return true, "request matched gitleaks default config"
+}
+
+func getLeakProtectionDetector() (*gitleaksdetect.Detector, error) {
+	if detector, ok := leakProtectionDetectorPool.Get().(*gitleaksdetect.Detector); ok && detector != nil {
+		return detector, nil
+	}
+	cfg, err := getLeakProtectionGitleaksConfig()
+	if err != nil {
+		return nil, err
+	}
+	return gitleaksdetect.NewDetector(cfg), nil
 }
 
 func getLeakProtectionGitleaksConfig() (gitleaksconfig.Config, error) {

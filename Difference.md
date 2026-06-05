@@ -630,3 +630,39 @@
   - 入账函数 [`model.CompleteEpayTopUpByQuery()`](model/topup.go) 使用事务和行级锁读取订单，只有 `pending` 的 `epay` 订单会完成；已成功订单直接幂等返回，避免 notify 与主动查单并发导致重复加额度。
   - 订阅补单调用 [`model.CompleteSubscriptionOrder()`](model/subscription.go)，只开通订阅权益并通过既有 [`upsertSubscriptionTopUpTx()`](model/subscription.go) 写支付流水，不会按普通充值给用户增加余额。
   - 原异步回调 [`controller.EpayNotify()`](controller/topup.go) 也改为复用同一个完成函数，统一幂等补单路径。
+
+21. 【已实现】relay 热路径性能优化：复用泄漏检测器并避免禁用字段整包 JSON 重写
+
+- 背景：
+  - 远程实例 pprof 显示，relay 请求路径中泄漏保护会反复构建 gitleaks detector，触发大量 aho-corasick trie 构建分配。
+  - `RemoveDisabledFields()` 为删除少量顶层字段，会把完整请求 JSON 解码为 `map[string]interface{}` 后再重新编码，放大大请求的 CPU 与分配成本。
+
+- 泄漏保护优化：
+  - 在 [`service/leak_protection.go`](service/leak_protection.go) 中新增 detector pool：
+    - 默认 gitleaks config 仍通过 `sync.Once` 初始化。
+    - 每次扫描从 `sync.Pool` 获取已构建好 prefilter trie 的 detector，用完放回，避免每段文本扫描都执行 `gitleaksdetect.NewDetector()`。
+    - 扫描前先 `strings.TrimSpace()`，空白文本直接跳过，减少无意义 detector 调用。
+  - 保留原有行为：
+    - 仍优先使用 gitleaks 默认规则。
+    - 未命中时继续使用 `sk-[A-Za-z0-9]{40,}` 后备规则。
+    - 仍只扫描提取出的请求文本片段，不改变用户侧开关语义。
+
+- 禁用字段过滤优化：
+  - 在 [`relay/common/relay_info.go`](relay/common/relay_info.go) 中改造 `RemoveDisabledFields()`：
+    - 先用 `bytes.Contains()` 做字段名快速判断，请求体不含目标字段时直接返回原始 `jsonData`。
+    - 使用既有 `gjson` 判断路径是否存在，使用既有 `sjson.DeleteBytes()` 删除字段，替代完整 `map[string]interface{}` 解码与重编码。
+    - 继续支持删除：
+      - `service_tier`
+      - `inference_geo`
+      - `store`
+      - `safety_identifier`
+      - `stream_options.include_obfuscation`
+    - 当 `stream_options.include_obfuscation` 删除后父对象为空时，继续删除 `stream_options`，保持原测试语义。
+  - 透传场景仍保持原行为：
+    - 全局 `PassThroughRequestEnabled` 开启时直接返回原始请求。
+    - 渠道 `PassThroughBodyEnabled` 开启时直接返回原始请求。
+
+- 测试：
+  - 在 [`relay/common/override_test.go`](relay/common/override_test.go) 中新增 `TestRemoveDisabledFieldsNoTargetFieldsReturnsOriginalBytes`，覆盖无目标字段时直接返回原始 JSON bytes 的 fast path。
+  - 已在 `10.64.0.101` 的 `/tmp/newapi-test-src` 测试副本中执行：
+    - `go test ./service ./relay/common`
