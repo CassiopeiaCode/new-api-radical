@@ -1,0 +1,680 @@
+# 和Newapi上游的区别
+
+1. 【已实现】模型健康度（5 分钟切片 → 小时聚合 → 成功率展示）
+
+- 原始需求（保留）：实现维护模型健康度（健康度是一个时间的比值，每5分钟一个单位，如果该单位内只有失败的请求，那么记为失败时间片，如果有一个或多个成功请求并且（返回的byte长度大于1k或完成token大于2或实际响应模型回复大于2char），记为成功时间片，可查看不同小时时间段的模型成功率），实现后端和对应前端，，设计数据结构和新表实现良好性能。实现对非管理员隐藏可自定义模型和时间的查询（在控制台），并实现在导航栏添加新的页面（新页面所有用户即使非登录也可查看），显示所有模型最近24小时每小时的健康度。
+
+- 口径与数据结构（后端聚合“最小单位=5分钟切片”）
+  - 5 分钟切片对齐：[`model.AlignSliceStartTs()`](model/model_health_slice.go:44) 使用 `createdAt - (createdAt % 300)`（`300s` 常量见 [`modelHealthSliceSeconds`](model/model_health_slice.go:13)）。
+  - “成功且满足阈值”判定：普通模型由 [`model.IsQualifiedSuccess()`](model/model_health_slice.go:49) 使用 `responseBytes > 1024 || completionTokens > 2 || assistantChars > 2`；模型名以 `whisper` 开头（不区分大小写）时使用独立口径 `responseBytes >= 100`，不再要求输出 token 或 assistant 文本长度。错误事件仍由 [`(*model.ModelHealthEvent).Normalize()`](model/model_health_slice.go:53) 强制判为失败。
+  - 新表结构：[`model.ModelHealthSlice5m`](model/model_health_slice.go:16) 映射表名 `model_health_slice_5m`（[`ModelHealthSlice5m.TableName()`](model/model_health_slice.go:29)）；主键为 `(model_name, slice_start_ts)`，并带按时间/模型索引字段（gorm tag 见 [`model.ModelHealthSlice5m`](model/model_health_slice.go:16)）。
+
+- 写入路径与性能设计（异步队列 + UPSERT）
+  - 写入入口封装：[`model.RecordModelHealthEventAsync()`](model/model_health_writer.go:36) 将事件推入内存队列（[`modelHealthEventQueueSize`](model/model_health_writer.go:11)）并由固定 worker 消费（[`modelHealthWorkerCount`](model/model_health_writer.go:12)），避免请求路径同步写库。
+  - UPSERT 聚合：[`model.UpsertModelHealthSlice5m()`](model/model_health_slice.go:70) 使用 `ON CONFLICT`（gorm clause）按 `(model_name, slice_start_ts)` 做增量更新：
+    - `total_requests / error_requests / success_qualified_requests` 累加（见 [`updates`](model/model_health_slice.go:102)）
+    - `has_success_qualified` 采用 OR 聚合（见 [`"has_success_qualified": gorm.Expr(...)`](model/model_health_slice.go:106)）
+    - `max_response_bytes / max_completion_tokens / max_assistant_chars` 用 `GREATEST` 取最大（见 [`updates`](model/model_health_slice.go:102)）
+    - 数据库兼容：冲突更新引用新插入值时按方言生成 SQL，PostgreSQL 使用 `EXCLUDED.col`，MySQL 保持 `VALUES(col)`，避免 PostgreSQL 下 `VALUES(...)` 报错，同时不改变 MySQL 现有行为。
+  - 说明：代码提供了“事件写入器 + 聚合表”的通用能力；调用方在“成功响应/失败响应”处构造 [`model.ModelHealthEvent`](model/model_health_slice.go:33) 并调用 [`model.RecordModelHealthEventAsync()`](model/model_health_writer.go:36) 即可把请求结果滚入 5 分钟切片统计。
+
+- 小时聚合查询（按小时 bucket 计算 success_slices/total_slices/成功率）
+  - 管理员查询单模型小时聚合：[`controller.GetModelHealthHourlyStatsAPI()`](controller/model_health.go:62)
+    - 入参：`model_name` 必填；时间可用 `start_hour/end_hour` 或 `hours=ts,ts...`（解析见 [`controller.parseHourListParam()`](controller/hour_utils.go:9)，对齐校验见 [`controller.isAlignedHour()`](controller/hour_utils.go:34)）
+    - 后端查询：[`model.GetModelHealthHourlyStats()`](model/model_health_query.go:42) 从 `model_health_slice_5m` 聚合到小时：
+      - 小时桶表达式：[`model.hourStartExprSQL()`](model/model_health_query.go:20) 兼容 mysql/sqlite/postgres（避免整数/浮点除法差异）
+      - 成功率表达式：[`model.successRateExprSQL()`](model/model_health_query.go:37) 强制 float 除法避免截断
+      - 布尔聚合兼容：`success_slices / success_rate` 不再直接对 `has_success_qualified` 做 `SUM(bool)`，统一改为 `CASE WHEN has_success_qualified THEN 1 ELSE 0 END` 后再聚合，兼容 PostgreSQL，同时保持 MySQL 结果不变。
+    - 返回补齐：当某小时无数据时，API 会补 0 行，保证前端渲染稳定（补齐逻辑见 [`controller.GetModelHealthHourlyStatsAPI()`](controller/model_health.go:111)）。
+
+- 公共页面数据源（无需登录，展示所有模型最近 24h 每小时健康度）
+  - 公共 API：[`controller.GetPublicModelsHealthHourlyLast24hAPI()`](controller/model_health.go:156) 计算 `start_hour/end_hour`（对齐到整点）后调用 [`model.GetAllModelsHealthHourlyStats()`](model/model_health_query.go:75)，并按“每模型 × 24 小时”补齐缺失小时（补齐见 [`controller.GetPublicModelsHealthHourlyLast24hAPI()`](controller/model_health.go:199)）。
+  - `成功请求 token` 展示（不修改成功率口径）：
+    - 数据来源：复用小时聚合表 `quota_data` 的 `token_used`（写入点见 [`model.LogQuotaData()`](model/usedata.go:58)），按 `model_name + created_at(整点)` 聚合得到每小时成功 token。
+    - 合并位置：在公共 API 内额外查询 `quota_data` 并把结果合并进返回行字段 `success_tokens`（实现见 [`controller.GetPublicModelsHealthHourlyLast24hAPI()`](controller/model_health.go:156)）。
+    - 说明：成功率仍完全来自健康度切片表 `model_health_slice_5m`（`success_slices/total_slices/success_rate` 逻辑不变），token 统计仅用于展示与排序。
+  - 前端展示与“低流量视作无数据”策略（公共页面 `/model-health`）：
+    - 文案提示：页面“最近 24 小时各模型运行状态一览”后追加“监测所有请求（包括格式不正确导致的错误）”。
+    - 报表过滤：按每模型最近 24 小时的每小时 `success_tokens` 计算 P10（仅对 `>0` token 的小时取分位数），若某小时 `success_tokens < P10` 则该小时视作“无数据”（UI 会使用该模型的平均成功率进行填充渲染）。
+    - 平均值/总体成功率：模型平均成功率与整体成功率的分子分母（`success_slices/total_slices`）均忽略这些被判定为“无数据”的低流量小时。
+  - 路由与鉴权：
+    - 管理员接口 `/api/model_health/hourly`：在 [`router.SetApiRouter()`](router/api-router.go:11) 中挂载并强制 [`middleware.AdminAuth()`](router/api-router.go:276)（满足“非管理员隐藏可自定义模型和时间的查询（在控制台）”）。
+    - 公共接口 `/api/public/model_health/hourly_last24h`：在 [`router.SetApiRouter()`](router/api-router.go:11) 中挂载且无鉴权（满足“新页面所有用户即使非登录也可查看”所需的数据源）。
+  - 缓存：公共接口仍使用 Redis + 内存双层缓存，缓存内容包含新增字段 `success_tokens`；key/TTL 定义见 [`publicModelHealthCacheKey`](controller/model_health.go:19) 与 [`publicModelHealthCacheTTL`](controller/model_health.go:20)；读取见 [`getPublicModelHealthCache()`](controller/model_health.go:270)，写入见 [`setPublicModelHealthCache()`](controller/model_health.go:294)。
+
+2. 【已实现】管理员豁免“用户请求限速 RPM”（在无法按标签精确解除某类限速时的兜底）
+
+- 原始需求（保留）：若Newapi无法实现在对所有用户限速的情况下，使用标签解除对应的限速（而不是其他限速），那么添加管理员豁免用户限速RPM
+
+- 具体实现位置（限速点与豁免点）
+  - 实际生效的“用户请求限速”中间件：[`middleware.ModelRequestRateLimit()`](middleware/model-rate-limit.go:167)
+  - 豁免判断：在中间件内获取当前请求用户 `id` 后，调用 [`setting.IsModelRequestRateLimitExemptUser()`](setting/rate_limit.go:67)；若命中则直接放行并打标头 `X-RateLimit-Bypass: ModelRequestRateLimit`（见 [`middleware.ModelRequestRateLimit()`](middleware/model-rate-limit.go:167) 里的豁免分支）。
+  - 限速开关：[`setting.ModelRequestRateLimitEnabled`](setting/rate_limit.go:15)（在 [`middleware.ModelRequestRateLimit()`](middleware/model-rate-limit.go:167) 的请求入口实时检查，关闭则 `c.Next()`）。
+
+- 限速策略（两套计数：总请求 + 成功请求）
+  - 时间窗口：`duration := ModelRequestRateLimitDurationMinutes * 60`（见 [`setting.ModelRequestRateLimitDurationMinutes`](setting/rate_limit.go:16) 与 [`middleware.ModelRequestRateLimit()`](middleware/model-rate-limit.go:167)）。
+  - 总请求数（包含失败）：`ModelRequestRateLimitCount`（见 [`setting.ModelRequestRateLimitCount`](setting/rate_limit.go:17)）；Redis 模式下通过令牌桶限制（见 [`limiter.New(...).Allow()`](middleware/model-rate-limit.go:101)）。
+  - 成功请求数：`ModelRequestRateLimitSuccessCount`（见 [`setting.ModelRequestRateLimitSuccessCount`](setting/rate_limit.go:18)）；Redis 模式下用 list 记录成功请求时间戳并比较窗口（见 [`checkRedisRateLimit()`](middleware/model-rate-limit.go:25) 与成功计数 key 构造 [`successKey`](middleware/model-rate-limit.go:85)）。
+  - 仅成功请求才计入成功限制：请求结束后 `c.Writer.Status() < 400` 才写入成功计数（见 [`redisRateLimitHandler()`](middleware/model-rate-limit.go:78) 与 [`memoryRateLimitHandler()`](middleware/model-rate-limit.go:132) 的“请求成功才记录”逻辑）。
+  - 说明：当 `totalMaxCount == 0` 时，总请求限制跳过（见 [`checkRedisRateLimit()`](middleware/model-rate-limit.go:25) 与 [`memoryRateLimitHandler()`](middleware/model-rate-limit.go:132) 对 total 的判断），仅剩“成功请求数限制”。
+
+- 分组覆盖（不同 group 可配置不同限速）
+  - 分组读取：优先 token group，其次 user group（见 [`common.GetContextKeyString()`](middleware/model-rate-limit.go:188) 读取 [`constant.ContextKeyTokenGroup`](middleware/model-rate-limit.go:188) / [`constant.ContextKeyUserGroup`](middleware/model-rate-limit.go:190)）。
+  - 分组限速配置：[`setting.GetGroupRateLimit()`](setting/rate_limit.go:85) 允许覆盖默认 `totalMaxCount/successMaxCount`（见 [`middleware.ModelRequestRateLimit()`](middleware/model-rate-limit.go:167) 内的覆盖逻辑）。
+
+- 豁免配置的数据结构与更新方式（Root/管理员通过 option 写入）
+  - 豁免列表存储：[`setting.ModelRequestRateLimitExemptUserIDs`](setting/rate_limit.go:20)（`map[int]struct{}`）。
+  - 更新/解析：[`setting.UpdateModelRequestRateLimitExemptUserIDs()`](setting/rate_limit.go:55) + [`setting.ParseModelRequestRateLimitExemptUserIDs()`](setting/rate_limit.go:34) 支持逗号/空白/换行等分隔，非法 id 会报错（`invalid userId`）。
+  - 配置下发：option 系统会暴露与加载 `ModelRequestRateLimit*` 相关键（见 [`model/option.go`](model/option.go:110) 写入与 [`model/option.go`](model/option.go:285) 读取开关/参数）。
+3. 【已实现】最近 100 次 API 调用请求/响应缓存（含错误与上游流式原始 chunk）+ 管理员 UI 查阅
+
+- 原始需求（保留）：实现缓存最近100次API调用的请求和返回信息到内存里（包括报错，记录客户端原始请求和上游原始响应（包括上游原始流式响应）），提供UI查阅，实现后端和对应前端，设计数据结构和新表实现良好性能
+
+- 后端：内存环形缓存（只存 meta）+ 临时文件存全文（容量=100，按请求 id 覆盖）
+  - 单例与容量：[`service.RecentCallsCache()`](service/recent_calls_cache.go:116) 返回全局单例，默认容量 [`DefaultRecentCallsCapacity`](service/recent_calls_cache.go:22)=100。
+  - 环形缓冲实现：[`type recentCallsCache`](service/recent_calls_cache.go:97) 维护 `buffer []*recentCallEntry` + `nextID atomic.Uint64`；写入位置由 `idx := int(id % capacity)` 决定（见 [`(*recentCallsCache).put()`](service/recent_calls_cache.go:500)），天然只保留最近 N 条。
+  - “只存 meta”：内存里只保留 `RecentCallRecord` 的 headers/status/flags 等元信息；`request.body / response.body / stream.chunks / stream.aggregated_text` 写入临时文件后按需读回（返回 API 时仍是完整字段）。
+  - 临时目录：使用 `os.TempDir()` 下的进程 session 临时目录（前缀 `new-api-recent-calls-*`），启动时会清理旧 session 目录，确保严格最多保留 100 条对应文件。
+
+- 后端：记录入口（请求开始 / 非流式响应 / 流式 chunk / 错误）
+  - 请求开始（记录客户端原始请求）：[`(*recentCallsCache).BeginFromContext()`](service/recent_calls_cache.go:143)
+    - 用户/渠道从 context 取：[`constant.ContextKeyUserId`](service/recent_calls_cache.go:159)、[`constant.ContextKeyChannelId`](service/recent_calls_cache.go:160)
+    - headers 脱敏：[`sanitizeHeaders()`](service/recent_calls_cache.go:490) 会 mask `authorization/x-api-key/x-goog-api-key/proxy-authorization`
+    - 请求 body 省略/截断：[`encodeBodyForRecord()`](service/recent_calls_cache.go:510) 对 `multipart/form-data` 直接 omit（原因 `multipart_form_data`）；文本按 [`DefaultMaxRequestBodyBytes`](service/recent_calls_cache.go:24) 截断后写入临时文件（内存只保留 meta）。
+    - 将 record id 写入 gin context：key 为 [`RecentCallsContextKeyID`](service/recent_calls_cache.go:20)
+  - Relay 主链路接入（确保每次请求都会 Begin）：在 [`controller.Relay()`](controller/relay.go:65) 中读取 requestBody 后调用 [`service.RecentCallsCache().BeginFromContext()`](controller/relay.go:208)（若之前未写入 recent_calls_id）。
+  - 非流式上游响应：[`(*recentCallsCache).UpsertUpstreamResponseByContext()`](service/recent_calls_cache.go:218)，例如 OpenAI 非流式路径调用见 [`service.RecentCallsCache().UpsertUpstreamResponseByContext()`](relay/channel/openai/relay-openai.go:209)，记录 `status_code/headers` 并将 `body`（按 [`DefaultMaxResponseBodyBytes`](service/recent_calls_cache.go:25) 截断）写入临时文件。
+  - 流式上游响应（保存 raw chunk + 聚合文本）
+    - 初始化 stream：[`(*recentCallsCache).EnsureStreamByContext()`](service/recent_calls_cache.go:255)（OpenAI 流式见 [`EnsureStreamByContext()`](relay/channel/openai/relay-openai.go:114)，Gemini 流式见 [`EnsureStreamByContext()`](relay/channel/gemini/relay-gemini.go:1075)）
+    - 追加 raw chunk：[`(*recentCallsCache).AppendStreamChunkByContext()`](service/recent_calls_cache.go:283) 将 chunk 先编码为 JSONL 行并写入 entry 级内存缓冲；默认累计到 16KiB 后再批量 append 到临时文件。单 chunk 仍按 [`DefaultMaxStreamChunkBytes`](service/recent_calls_cache.go:27) 截断，总量仍按 [`DefaultMaxStreamTotalBytes`](service/recent_calls_cache.go:28) 限制（超限标记 `chunks_truncated`）。
+    - 写入聚合 assistant 文本：[`(*recentCallsCache).FinalizeStreamAggregatedTextByContext()`](service/recent_calls_cache.go:323) 将聚合文本写入临时文件；返回 API 时按需读回（OpenAI/Gemini 调用点同原实现）。
+  - 错误记录：[`(*recentCallsCache).UpsertErrorByContext()`](service/recent_calls_cache.go:196)，在 [`processChannelError()`](controller/relay.go:357) 里写入（见 [`UpsertErrorByContext()`](controller/relay.go:360)），包含 `message/type/code/status`。
+  - 上游错误响应体读取上限：当上游返回非 200 并进入 [`service.RelayErrorHandler()`](service/error.go:86) 时，仅读取最多 1MiB 的 error body（超出追加 `...[truncated]`），避免上游回显大 payload 导致日志/IO 压力。
+
+- 后端：管理端查询 API（debug 路由）
+  - 列表：[`controller.GetRecentCalls()`](controller/debug_recent_calls.go:11) 支持 `limit` 与 `before_id`，数据来自 [`(*recentCallsCache).List()`](service/recent_calls_cache.go:383)（按 id 倒序）。
+  - 单条：[`controller.GetRecentCallByID()`](controller/debug_recent_calls.go:33) 调用 [`(*recentCallsCache).Get()`](service/recent_calls_cache.go:353) 返回 request/response/stream/error 详情。
+  - 路由挂载：[`router.SetApiRouter()`](router/api-router.go:11) 的 debug group 注册 `/api/debug/recent_calls` 与 `/api/debug/recent_calls/:id`（见 [`debugRoute.GET("/recent_calls"...`](router/api-router.go:54)）。
+
+- 前端：管理员 UI 页面与入口
+  - 路由：`/console/recent-calls` 懒加载 [`RecentCalls`](web/src/App.jsx:56) 并受 [`AdminRoute`](web/src/App.jsx:24) 保护（见该路由定义 [`/console/recent-calls`](web/src/App.jsx:312)）。
+  - 侧边栏入口：“最近调用”菜单项 `recent_calls -> /console/recent-calls`（见 [`routerMap`](web/src/components/layout/SiderBar.jsx:33) 与 [`adminItems`](web/src/components/layout/SiderBar.jsx:151)）。
+  - API 封装：[`getRecentCalls()`](web/src/services/recentCalls.js:22) 与 [`getRecentCallById()`](web/src/services/recentCalls.js:36) 请求 `/api/debug/recent_calls*`。
+  - 页面实现：[`RecentCallsPage`](web/src/pages/RecentCalls/index.jsx:433) 列表（limit/before_id 翻页）+ 右侧 SideSheet 详情（请求/响应 CodeViewer + 流式回放）；403 时跳转 `/forbidden`（见 [`isAxiosError403()`](web/src/pages/RecentCalls/index.jsx:49) 与 [`query()`](web/src/pages/RecentCalls/index.jsx:446)）。
+  - 列表增强：新增“最后的用户消息”列，从 recent call 的 `request.body` 中解析并显示最后一条 user 文本，兼容 Anthropic `/v1/messages`、OpenAI Chat `messages`、OpenAI Responses `input` 三类格式；列表表格加横向 `scroll`，单元格内容限制为前 100 字并支持纵向滚动。
+  - 流式详情增强：[`RecentCallStreamViewer`](web/src/pages/RecentCalls/index.jsx:150) 改为先展示 `aggregated_text`，再通过外层折叠面板展示 `SSE数据流` 与原始 chunk 文本；展开 `SSE数据流` 后，内部每个 SSE event 仍逐条单独折叠。
+  - SSE 折叠修复：[`SSEViewer`](web/src/components/playground/SSEViewer.jsx:46) 的受控折叠面板改用 `itemKey` 与标准化 `onChange`，修复“点开一个事件会联动展开全部事件”的问题，保留“全部展开 / 全部收起”能力。
+
+4. 【已实现】生成随机兑换码（支持前缀、数量、随机额度区间、并下载 txt 文件）
+
+- 原始需求（保留）：实现生成随机兑换码（输入最小值和最大值，以及其他普通兑换码具有的字段，并且支持设置生成的兑换码前缀，生成随机的兑换码并提供文件下载），实现后端和对应前端
+
+- 后端：随机 Key 生成（前缀 + 随机字符串，最大长度 32）
+  - 最大长度常量：[`redemptionKeyMaxLength`](controller/redemption.go:66)=32。
+  - 前缀输入：请求体字段 `key_prefix`（[`dto.CreateRedemptionRequest.KeyPrefix`](dto/redemption.go:12)），后端在 [`AddRedemption()`](controller/redemption.go:69) 里 `strings.TrimSpace()`（见 [`keyPrefix := strings.TrimSpace(req.KeyPrefix)`](controller/redemption.go:130)）。
+  - 前缀长度保护：至少留 8 位随机段（[`minRandomLength`](controller/redemption.go:133)=8），若前缀过长直接返回错误（见 [`prefixLen > redemptionKeyMaxLength-minRandomLength`](controller/redemption.go:135)）。
+  - 随机段长度：`randomLength := redemptionKeyMaxLength - prefixLen`（[`randomLength`](controller/redemption.go:144)），然后调用 [`common.GenerateRandomCharsKey()`](controller/redemption.go:148) 生成随机字符串并拼接成最终 key（[`key := keyPrefix + randomPart`](controller/redemption.go:158)）。
+
+- 后端：随机额度区间（min/max）与兼容逻辑
+  - DTO 字段：[`dto.CreateRedemptionRequest.RandomQuotaEnabled`](dto/redemption.go:15)、[`dto.CreateRedemptionRequest.QuotaMin`](dto/redemption.go:16)、[`dto.CreateRedemptionRequest.QuotaMax`](dto/redemption.go:17)。
+  - 模式判断：[`dto.CreateRedemptionRequest.RandomQuotaMode()`](dto/redemption.go:27) 兼容两种开启方式：
+    - `random_quota_enabled=true`
+    - 或者同时提供 `quota_min` + `quota_max`
+  - 校验逻辑：在 [`AddRedemption()`](controller/redemption.go:69) 里，随机额度模式要求 `quota_min/quota_max` 必填、>0、且 `min <= max`（见 [`req.RandomQuotaMode()`](controller/redemption.go:92) 分支）。
+  - 随机取值：每个兑换码独立生成额度，使用加密随机数函数 [`cryptoRandIntInclusive()`](controller/redemption.go:281) 在 `[min,max]` 之间取整（见 [`randomQuota, err := cryptoRandIntInclusive(...)`](controller/redemption.go:163)）。
+
+- 后端：批量生成与返回（用于前端下载）
+  - 生成数量：[`dto.CreateRedemptionRequest.EffectiveCount()`](dto/redemption.go:20) 对 `count<=0` 做兼容（默认 1）；在 [`AddRedemption()`](controller/redemption.go:69) 里使用 `count := req.EffectiveCount()`（[`count`](controller/redemption.go:81)）。
+  - 单次生成上限：后端校验 `count <= 100000`（见 [`redemptionBulkCreateMaxCount`](controller/redemption.go:67) 与 [`count > redemptionBulkCreateMaxCount`](controller/redemption.go:86)）。
+  - 批量生成：循环 `count` 次构造 [`model.Redemption`](controller/redemption.go:176) 并 `Insert()`（[`cleanRedemption.Insert()`](controller/redemption.go:184)）；成功 key 追加到 `keys`（[`keys = append(keys, key)`](controller/redemption.go:195)）。
+  - 返回格式：创建成功时 `data/keys` 都返回 `[]string`（见 [`"data": keys, "keys": keys`](controller/redemption.go:201)），前端可直接拿到列表用于下载 txt。
+
+- 前端：表单字段与下载（创建成功后弹窗确认并下载）
+  - 创建表单：[`EditRedemptionModal`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:60)
+    - 新建时提供 `key_prefix` 输入（见 [`field='key_prefix'`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:329)）
+    - 随机额度开关：`random_quota_enabled`（见 [`Form.Switch field='random_quota_enabled'`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:372)），开启后展示 `quota_min/quota_max` 两个输入（见 [`field='quota_min'`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:387) 与 [`field='quota_max'`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:415)）
+  - 提交请求：新建走 [`API.post('/api/redemption/', localInputs)`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:181)，随机额度模式会写入：
+    - `random_quota_enabled=true`（[`localInputs.random_quota_enabled = true`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:167)）
+    - `quota_min/quota_max`（[`localInputs.quota_min`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:168)，[`localInputs.quota_max`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:169)）
+  - 文件下载：后端返回 `keys`（或兼容读 `data`）后弹出确认框，并用 [`downloadTextAsFile()`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:24) 下载 `${name}.txt`（见 [`downloadTextAsFile(text, \`\${localInputs.name}.txt\`)`](web/src/components/table/redemptions/modals/EditRedemptionModal.jsx:218)）。
+
+5. 【已实现】每渠道“模型角色映射”（将特定 role 转换为另一种 role，不是全局模型映射）
+ 
+- 原始需求（保留）：实现模型自定义配置没有将特定role转换为另一种role的功能的话实现它。不是全局模型映射，而是每个渠道一个配置，加入渠道额外设置
+ 
+- 配置入口（前端：渠道额外设置 JSON）
+  - 渠道编辑弹窗提供字段 `model_role_mappings`（纯字符串 JSON）：[`EditChannelModal`](web/src/components/table/channels/modals/EditChannelModal.jsx:122) 的默认值见 [`originInputs.model_role_mappings`](web/src/components/table/channels/modals/EditChannelModal.jsx:131)。
+  - UI 组件：在“渠道额外设置”卡片中使用 [`JSONEditor field='model_role_mappings'`](web/src/components/table/channels/modals/EditChannelModal.jsx:3142)；placeholder 里明确说明“仅作用于当前渠道”（满足“每个渠道一个配置”）。
+  - 提交时写入渠道的 `setting` 字段：
+    - 解析/校验：提交前用 [`verifyJSON()`](web/src/components/table/channels/modals/EditChannelModal.jsx:1252) 校验，成功后 `JSON.parse()` 存入 `channelExtraSettings.model_role_mappings`（见 [`channelExtraSettings.model_role_mappings = JSON.parse(...)`](web/src/components/table/channels/modals/EditChannelModal.jsx:1257)）。
+    - 序列化：最终 `localInputs.setting = JSON.stringify(channelExtraSettings)`（见 [`localInputs.setting = JSON.stringify(channelExtraSettings)`](web/src/components/table/channels/modals/EditChannelModal.jsx:1266)），后端持久化该 JSON。
+  - 编辑回填兼容：读取旧渠道时，`data.setting` 解析后会兼容 `model_role_mappings` 被存成“对象”或“JSON 字符串”两种形态（见 [`if (typeof rawMappings === 'string')`](web/src/components/table/channels/modals/EditChannelModal.jsx:572) 分支）。
+ 
+- 后端：ChannelSettings DTO 兼容与字段承载（不是全局，随渠道走）
+  - 字段定义：[`dto.ChannelSettings.ModelRoleMappings`](dto/channel_settings.go:61) 使用 [`dto.ModelRoleMappingsField`](dto/channel_settings.go:14) 承载 `model_role_mappings`。
+  - 兼容三种入库形态（历史/后端/前端写法）
+    - object（推荐）：`{ "gpt-4o": { "system": "developer" } }`（见注释 [`ModelRoleMappingsField supports...`](dto/channel_settings.go:8)）
+    - string（双层 JSON）：`"{\"gpt-4o\":{\"system\":\"developer\"}}"`（[`UnmarshalJSON()`](dto/channel_settings.go:16) 在检测到首字符 `"` 时递归解析内部 JSON）
+    - legacy flat：`{ "system": "developer" }` 会被自动提升为 wildcard `*`（见 [`"*": flat`](dto/channel_settings.go:47)），用于“对所有模型生效”的兜底。
+ 
+- 后端：映射解析/校验（只允许 OpenAI roles；错误配置自动忽略并告警）
+  - role 白名单：[`allowedOpenAIRoles`](service/model_role_mapping.go:34) 允许 `system/user/assistant/developer/tool`。
+  - 解析与强校验：[`service.ParseAndValidateModelRoleMappingsJSON()`](service/model_role_mapping.go:50)
+    - JSON 必须是 object：`map[modelPrefix]map[fromRole]toRole`（见 [`expected object`](service/model_role_mapping.go:62)）
+    - fromRole/toRole 必须都在白名单内（见 [`IsAllowedOpenAIRole()`](service/model_role_mapping.go:99) 的校验点）。
+  - 防御式读取渠道设置：[`service.GetModelRoleMappingsFromChannelSettings()`](service/model_role_mapping.go:104)
+    - 从 gin context 读取当前选中渠道的 [`constant.ContextKeyChannelSetting`](service/model_role_mapping.go:110)（该 context 在选中渠道后由中间件填充）
+    - 将 `setting.ModelRoleMappings` 重新 marshal 成 JSON 再调用解析函数做二次校验（见 [`ParseAndValidateModelRoleMappingsJSON(string(b))`](service/model_role_mapping.go:124)）；失败只 `logger.LogWarn` 并返回 `false`，避免错误配置影响请求。
+ 
+- 匹配规则（按模型前缀最长匹配；支持 wildcard "*")
+  - 选择策略：[`service.ResolveRoleMappingForModel()`](service/model_role_mapping.go:135)
+    - 普通前缀：`strings.HasPrefix(model, prefix)`（见 [`strings.HasPrefix`](service/model_role_mapping.go:152)）
+    - wildcard：prefix 为 `"*"` 时匹配任意模型但优先级最低（见 [`candidateLen = 0`](service/model_role_mapping.go:151)）
+    - 最终取“匹配且前缀最长”的 roleMap（见 [`if matched && candidateLen > bestLen`](service/model_role_mapping.go:156)），保证更具体的模型规则覆盖 default/*。
+ 
+- 应用点（关键：每次重试前先恢复原 role，再按渠道映射重写）
+  - snapshot 原始 role：在 relay 解析请求后立即做快照（见 [`roleSnapshot := service.SnapshotRequestRoles(request)`](controller/relay.go:117)），覆盖两种请求结构：
+    - Chat Completions：保存每条 message 的 role（见 [`SnapshotRequestRoles()`](service/model_role_mapping.go:167) 的 `MessagesRoles`）
+    - Responses API：保存 `input[]` 的 role（见 [`SnapshotRequestRoles()`](service/model_role_mapping.go:181) 的 `InputRoles`）
+  - 每次选中/切换渠道（含重试）后：先恢复原 role，再应用当前渠道映射（见 [`RestoreRequestRoles(...); ApplyModelRoleMappingsToRequest(...)`](controller/relay.go:192)）
+    - 恢复：[`service.RestoreRequestRoles()`](service/model_role_mapping.go:201) 把 role 还原到最初客户端请求，避免“多次重试叠加映射导致 role 漂移”
+    - 映射：[`service.ApplyModelRoleMappingsToRequest()`](service/model_role_mapping.go:251) 针对不同请求类型分别处理：
+      - Chat Completions：[`applyToGeneralOpenAIRequest()`](service/model_role_mapping.go:271) 遍历 `messages[i].role` 并按 `roleMap[orig]` 替换（见 [`r.Messages[i].Role = target`](service/model_role_mapping.go:284)）
+      - Responses API：[`applyToOpenAIResponsesRequest()`](service/model_role_mapping.go:293) 解析 `input[]` 后按 `roleMap` 替换并回写 JSON（见 [`r.Input = b`](service/model_role_mapping.go:335)）
+  - 异常 role 处理：如果请求里出现非白名单 role，且未在映射表中，会通过 [`warnUnknownRoleOnce()`](service/model_role_mapping.go:338) 仅告警一次（按 `model|role` 去重），降低日志噪声。
+ 
+6. 【已实现】强制在日志记录 IP（即使用户关闭 IP 记录开关）
+ 
+- 原始需求（保留）：实现强制在日志记录IP，即使用户关闭IP记录
+ 
+- 用户侧开关仍存在，但“日志写入 IP”不再受其影响
+  - 用户设置字段：[`dto.UserSetting.RecordIpLog`](dto/user_settings.go:3)（json key `record_ip_log`）用于个人设置开关。
+  - 保存接口：[`controller.UpdateUserSetting()`](controller/user.go:1123) 接收 [`UpdateUserSettingRequest.RecordIpLog`](controller/user.go:1109) 并写回用户 setting（见 [`settings.RecordIpLog: req.RecordIpLog`](controller/user.go:1250)）。
+ 
+- 实际日志写入点：消费日志/错误日志均无条件写入 `c.ClientIP()`
+  - 错误日志：[`model.RecordErrorLog()`](model/log.go:99) 中 `Ip` 字段直接取 [`c.ClientIP()`](model/log.go:120)（`c == nil` 才返回空串）。
+  - 消费日志：[`model.RecordConsumeLog()`](model/log.go:158) 同样对 `Ip` 字段直接取 [`c.ClientIP()`](model/log.go:181)。
+  - 结论：无论用户 `record_ip_log` 设为 true/false，只要请求具备 gin context，日志表 `logs.ip` 都会被写入（满足“强制记录 IP”）。
+ 
+7. 【已实现】LinuxDO 固定前端回调与多站点原站登录
+
+- 原始需求（演进后保留）：LinuxDO 只配置一个固定 callback 时，`elysia` 与 `elysiver` 等多个 New API host 均能从各自站点发起并在原站完成登录。
+
+- LinuxDO 后台配置
+  - 唯一 callback 配置为固定站点现有的前端回调路由，例如 `https://elysia.h-e.top/oauth/linuxdo`。
+  - 不使用 `/api/oauth/linuxdo` 作为 LinuxDO 后台 callback；该路径是前端取得 `code/state` 后调用的业务 API。
+  - 不新增 `/oauth-redirect-linuxdo.html` 静态页，也不使用 `LINUXDO_OAUTH_CALLBACK_URL`、`LINUXDO_OAUTH_ALLOWED_ORIGINS` 等第二套运行时配置。
+  - LinuxDO authorization request 与 token exchange 均不自行发送或推导 `redirect_uri`，以 LinuxDO 后台实际配置的唯一 callback 为准（见 [`oauth/linuxdo.go`](oauth/linuxdo.go)）。
+
+- state 与发起会话
+  - 两套前端请求 `/api/oauth/state?provider=linuxdo&origin=<window.location.origin>`，因此 state 能记录实际发起站点（见 [`web/default/src/lib/oauth.ts`](web/default/src/lib/oauth.ts) 与 [`web/classic/src/helpers/api.js`](web/classic/src/helpers/api.js)）。
+  - 后端将随机 nonce、规范化 HTTPS origin 和短时过期时间编码并使用服务端 session secret 签名，同时把 nonce/origin 写入发起站点的 session Cookie（见 [`controller/oauth_linuxdo_state.go`](controller/oauth_linuxdo_state.go)）。
+  - state 篡改、过期或最终来源 session 不匹配时拒绝登录；只有来源站点的浏览器会话可以消费 state。
+
+- 前端中转流程（固定站不消费授权结果）
+  - LinuxDO 首先返回固定站点 `/oauth/linuxdo?code=...&state=...`，由上游原生 OAuth 前端回调组件调用 `/api/oauth/linuxdo`。
+  - API 验签 state 后，如果当前站点 Cookie 不是发起会话，仅返回 `data.action = "redirect"` 与来源站点 `/oauth/linuxdo?code=...&state=...`；此时不删除 state、不兑换 token、不建立登录态，也不由后端发送 302。
+  - 默认前端与 classic 前端识别 `action=redirect` 后使用 `window.location.replace()` 跳到来源站点（见 [`web/default/src/routes/oauth/$provider.tsx`](web/default/src/routes/oauth/$provider.tsx) 与 [`web/classic/src/components/auth/OAuth2Callback.jsx`](web/classic/src/components/auth/OAuth2Callback.jsx)）。
+  - 来源站点前端再次按上游原生流程调用 `/api/oauth/linuxdo`；此时 session nonce/origin 匹配，后端才消费 state、兑换 token、查询 LinuxDO 用户并返回原生 user JSON（见 [`controller/oauth.go`](controller/oauth.go)）。
+  - 前端从原生 user JSON 写入用户状态和用户 ID，后续 API 请求继续使用上游既有的 `New-Api-User` 请求头机制；不依赖无参数回调、`uid` 查询参数或 `/api/user/self` 补救登录。
+
+- 已验证流程
+  - `elysia → LinuxDO → elysia`：固定站与发起站相同，直接完成原生登录。
+  - `elysiver → LinuxDO → elysia 前端 → elysiver`：固定站 API 只返回前端跳转信息，源站最终消费 state 并完成登录。
+  - 两个站点的 `/oauth/linuxdo` 均为现有 SPA 路由，不需要 HAProxy 新路由或静态回调文件。
+
+- 【新增】前端自定义 JS 注入（环境变量，逗号分隔，按顺序 defer 注入）
+  - 环境变量：`CUSTOM_JS_URLS=https://example.com/a.js,https://example.com/b.js`
+  - 注入点：后端启动时替换 `web/dist/index.html` 的占位符 `<!--custom-js-->`（见 [`InjectCustomJavascripts()`](main.go:186) 与 [`<!--custom-js-->`](web/index.html:16)）
+
+- 【修复】`X-New-Api-Version` 只取 `VERSION` 的第一行，避免多行内容导致响应头异常
+  - 响应头写入：[`middleware.PoweredBy()`](middleware/cors.go:18) 写入 `common.Version`
+  - 版本解析：[`common.InitEnv()`](common/init.go:31) 从环境变量 `VERSION` 取第一行并 `TrimSpace`
+ 
+8. 【已实现】接入 FingerprintJS：记录用户最近 5 次去重 visitor id + ip（按 ip+visitor_id 去重）+ 管理员查询同 visitor id 用户（工作台面板“关联追踪”）
+  
+- 原始需求（保留）：实现接入 fingerprintjs/fingerprintjs 库，记录用户的历史5次visitor id + ip（按 ip+visitor_id 去重后的5次），并实现管理员查询相同visitor id的用户，也就是说创建一个管理员可见的在工作台的面板，面板名称4个字
+  
+- 前端：采集 visitor id + 1 小时节流上报
+  - 依赖：前端包已引入 `@fingerprintjs/fingerprintjs`（动态加载见 [`loadFingerprintJS()`](web/src/hooks/common/useFingerprint.js:31)）。
+  - 上报策略：默认 1 小时一次（[`REPORT_INTERVAL`](web/src/hooks/common/useFingerprint.js:24)），`localStorage` 记录上次上报时间（[`LAST_REPORT_KEY`](web/src/hooks/common/useFingerprint.js:27)）。
+  - 上报接口：[`reportFingerprint()`](web/src/hooks/common/useFingerprint.js:53) POST `/api/fingerprint/record`（见 [`API.post('/api/fingerprint/record'...`](web/src/hooks/common/useFingerprint.js:55)）。
+  - 缓存 visitor id：写入 `localStorage`（[`VISITOR_ID_KEY`](web/src/hooks/common/useFingerprint.js:28)；写入见 [`localStorage.setItem(VISITOR_ID_KEY, visitorId)`](web/src/hooks/common/useFingerprint.js:84)）。
+  - Hook 用法：登录后触发一次非强制采集（见 [`useFingerprint(isLoggedIn)`](web/src/hooks/common/useFingerprint.js:102)）。
+ 
+- 后端：记录到表 `user_fingerprints`，同用户最多保留 5 个不同 `ip + visitor_id` 组合（按 ip+visitor_id 去重）
+  - 写入入口：[`controller.RecordFingerprint()`](controller/fingerprint.go:16) 读取 `visitor_id`（[`RecordFingerprintRequest`](controller/fingerprint.go:11)），并取 `User-Agent` 与 [`c.ClientIP()`](controller/fingerprint.go:35) 一起入库。
+  - 数据表：[`model.UserFingerprint`](model/user_fingerprint.go:10) 映射表名 `user_fingerprints`（[`TableName()`](model/user_fingerprint.go:20)）。
+  - 去重逻辑：后端使用 upsert，按 `(user_id, visitor_id, ip)` 组合去重；命中则更新 `user_agent/updated_at`（实现见 [`model.RecordFingerprint()`](model/user_fingerprint.go:25)）。
+  - 保留 5 条：超过 5 个 `ip + visitor_id` 组合记录时，先取第 5 条的 `(updated_at,id)` 作为阈值，再删除更旧的记录（避免 MySQL 下出现仅 `OFFSET` 无 `LIMIT` 的非法 SQL；实现见 [`model.RecordFingerprint()`](model/user_fingerprint.go:25)）。
+  - MySQL 迁移：项目启动时会执行 [`DB.AutoMigrate()`](model/main.go:251)，并会尝试创建复合唯一索引 `ux_user_fingerprints_user_visitor_ip`（见 [`model.UserFingerprint`](model/user_fingerprint.go:10) 的 `uniqueIndex` tag），以保证并发下按 `(user_id, visitor_id, ip)` 组合去重正确。
+  - 搜索兼容：管理员搜索 visitor id / username / email 时，后端统一使用 `LOWER(column) LIKE LOWER(?)` 做大小写不敏感匹配，避免 PostgreSQL 默认 `LIKE` 大小写敏感而与 MySQL 行为不一致。
+  - 若你是“存量库迁移”且线上账号无建索引权限/或 AutoMigrate 未生效，请手动补该索引（否则可能产生重复行，导致“保留 5 条”失真）：
+    ```sql
+    ALTER TABLE user_fingerprints
+      ADD UNIQUE KEY ux_user_fingerprints_user_visitor_ip (user_id, visitor_id, ip);
+    ```
+ 
+- 管理员查询：重复指纹列表 + 点进查看关联用户
+  - 路由挂载（管理员）：在 [`router.SetApiRouter()`](router/api-router.go:11) 的 admin fingerprint group 下提供：
+    - 列表：[`adminFingerprintRoute.GET("/duplicates"...`](router/api-router.go:296) → [`controller.GetDuplicateVisitorIds()`](controller/fingerprint.go:125)
+    - 查用户：[`adminFingerprintRoute.GET("/users"...`](router/api-router.go:296) → [`controller.FindUsersByVisitorId()`](controller/fingerprint.go:100)
+  - “重复”口径：visitor_id + ip 组合下 `COUNT(DISTINCT user_id) > 1` 才算重复（见 [`model.GetDuplicateVisitorIds()`](model/user_fingerprint.go:205) 的 `GROUP BY visitor_id, ip HAVING ...`）。
+  - UI 面板（4 个字）：页面标题为 [`title={t('关联追踪')}`](web/src/pages/Fingerprint/index.jsx:384)，并提供“重复指纹/全部记录”两 tab（见 [`<Tabs ...>`](web/src/pages/Fingerprint/index.jsx:398)）。
+ 
+9. 【已实现】活跃任务槽追踪系统（全局 1000 / 单用户 50，SimHash 相似匹配，LRU 淘汰）+ 600s 高活跃扫描入库 + 24h token 消耗查询
+ 
+- 原始需求（保留）：实现维护每个用户100个槽，储存在内存中，每个槽是一次哈希和时间的记录，在8,64,512...长度的多个哈希结果（每个仅保存6位）。每当遇到请求时，都先计算哈希并和槽进行比较，如果能继承，那么继承并覆盖，否则LRU占用新槽。接下来实现一个查询页面，展示用户在30秒内的活跃任务数（即槽数）feat: 活跃任务槽追踪系统 - 全局1000槽/单用户50槽上限，多级哈希匹配，LRU淘汰策略，管理员查询页面。添加功能：实现每600秒扫描一次，如果发现活跃任务数在5（600s）以上的记录到新表 可查询。实现记录的用户可点击查看其24小时内消耗的不同模型的多少token
+ 
+- 核心数据结构：内存槽 + SimHash(64-bit) + LRU
+  - 全局/单用户上限：[`MaxGlobalSlots`](model/active_task_slot.go:24)=1000、[`MaxUserSlots`](model/active_task_slot.go:26)=50（与需求文案一致）。
+  - 活跃窗口：默认 30s（[`ActiveWindowSeconds`](model/active_task_slot.go:28)），排名 API 可调 `window`（见 [`controller.GetActiveTaskRankAPI()`](controller/active_task.go:22)）。
+  - 槽指纹：每槽保存一个 `SimHash uint64`（见 [`TaskSlot.SimHash`](model/active_task_slot.go:34)）。
+  - 相似匹配：当 `hamming(slot.SimHash, newHash) <= 5` 时继承同一槽，并用新指纹覆盖旧指纹（阈值常量见 [`SimHashThreshold`](model/active_task_slot.go:23)，匹配逻辑见 [`RecordTask()`](model/active_task_slot.go:115)）。
+  - 指纹计算：对原始 data（通常为原始请求体字符串）直接 `strings.Fields` 分词，按 token 计算 SimHash（见 [`simhash64()`](model/active_task_slot.go:67)）。
+  - 每次启动随机盐：token 哈希使用 `sha1(salt || token)`，salt 在进程启动时随机生成（见 [`simhashTokenSalt`](model/active_task_slot.go:34)、[`init()`](model/active_task_slot.go:36)、[`tokenHash64()`](model/active_task_slot.go:98)）。
+  - LRU 淘汰：匹配命中/复用都会移动到 LRU 末尾（见 [`moveToLRUEnd()`](model/active_task_slot.go:224)）。
+ 
+- 记录入口：从请求上下文抽取“可识别对话连续性”的数据
+  - 只统计 chat 类请求：路径命中 `/chat/completions`、`/v1/completions`、`/v1/responses`、`/v1/messages`、Gemini `generateContent`（见 [`isChatRequest := ...`](model/active_task_slot.go:447)）。
+  - 优先使用缓存过的请求 body：读取 gin context 的 [`common.KeyRequestBody`](common/gin.go:20)（见 [`gc.Get("key_request_body")`](model/active_task_slot.go:458)），若为空则退回 `modelName`（见 [`if data == "" { data = modelName }`](model/active_task_slot.go:464)）。
+  - 写入动作：[`RecordActiveTaskSlot()`](model/active_task_slot.go:428) → `manager.RecordTask(...)`（见 [`manager.RecordTask(userID, username, data)`](model/active_task_slot.go:469)）。
+  - 实际接入点：每次记录消费/错误日志时都会顺带记录活跃槽（见 [`RecordActiveTaskSlot(...)`](model/log.go:139) 与 [`RecordActiveTaskSlot(...)`](model/log.go:214)）。
+ 
+- 管理员 API + 前端查询页
+  - 路由（管理员）：[`activeTaskRoute`](router/api-router.go:306) 挂载：
+    - 实时排名：[`GET /api/active_task/rank`](controller/active_task.go:17)
+    - 统计信息：[`GET /api/active_task/stats`](controller/active_task.go:53)
+    - 高活跃历史：[`GET /api/active_task/history`](controller/active_task.go:61)
+    - 24h token 消耗：[`GET /api/active_task/user_token_usage`](controller/active_task.go:94)
+  - 前端页面：[`ActiveTaskRankPage`](web/src/pages/ActiveTaskRank/index.jsx:42)
+    - 实时 tab：轮询刷新 5s（见 [`setInterval(..., 5000)`](web/src/pages/ActiveTaskRank/index.jsx:196)），调用 `/api/active_task/rank`（见 [`API.get('/api/active_task/rank'`](web/src/pages/ActiveTaskRank/index.jsx:88)）。
+    - 历史 tab：查询 `/api/active_task/history`（见 [`API.get('/api/active_task/history'`](web/src/pages/ActiveTaskRank/index.jsx:129)）。
+    - token 弹窗：点击“Token消耗”调用 `/api/active_task/user_token_usage`（见 [`API.get('/api/active_task/user_token_usage'`](web/src/pages/ActiveTaskRank/index.jsx:170)）。
+ 
+- 600s 高活跃扫描 → 新表落库
+  - 扫描周期：[`HighActiveTaskScanInterval`](model/active_task_slot.go:331)=600s；阈值：[`HighActiveTaskThreshold`](model/active_task_slot.go:333)=5；窗口：[`HighActiveTaskWindowSeconds`](model/active_task_slot.go:335)=600s。
+  - 启动扫描器：[`StartHighActiveTaskScanner()`](model/active_task_slot.go:365) 使用 ticker 定时调用 [`scanAndSaveHighActiveUsers()`](model/active_task_slot.go:376)。
+  - 新表：[`model.HighActiveTaskRecord`](model/active_task_slot.go:339) 映射 `high_active_task_records`（[`TableName()`](model/active_task_slot.go:349)）。
+  - 过滤管理员：扫描保存时会跳过管理员（见 [`if IsAdmin(u.UserID) { continue }`](model/active_task_slot.go:388)）。
+ 
+- “查看该用户 24h 不同模型 token 消耗”
+  - 后端：[`controller.GetUserTokenUsage24hAPI()`](controller/active_task.go:98) 计算 `startTimestamp = now - 24*60*60`（见 [`startTimestamp := now - 24*60*60`](controller/active_task.go:107)），调用 [`model.GetUserTokenUsageByModel()`](model/log.go:436)。
+  - 查询来源：优先走 `quota_data` 小时聚合表（见注释 [`优先使用quota_data表（数据看板统计表）`](model/log.go:437) 与实际查询 [`DB.Table("quota_data")`](model/log.go:442)），返回 `{model_name,total_tokens,request_count}`（见 [`ModelTokenUsage`](model/log.go:428)）。
+ 
+10. 【已实现】合并上游签到更新 + 增加“是否开启随机额度”开关
+ 
+- 原始需求（保留）：合并上游的签到更新。添加是否开启随机额度功能
+ 
+- 配置结构：checkin_setting 同时支持固定额度与随机额度模式
+  - 后端配置结构：[`operation_setting.CheckinSetting`](setting/operation_setting/checkin_setting.go:7) 包含：
+    - `enabled`（[`Enabled`](setting/operation_setting/checkin_setting.go:8)）
+    - `min_quota/max_quota`（随机模式区间，见 [`MinQuota`](setting/operation_setting/checkin_setting.go:9) / [`MaxQuota`](setting/operation_setting/checkin_setting.go:10)）
+    - `fixed_quota`（固定模式额度，见 [`FixedQuota`](setting/operation_setting/checkin_setting.go:11)）
+    - `random_mode`（是否随机额度，见 [`RandomMode`](setting/operation_setting/checkin_setting.go:12)），默认 true（见 [`RandomMode: true`](setting/operation_setting/checkin_setting.go:21)）。
+  - 配置注册：通过 [`config.GlobalConfig.Register("checkin_setting"...`](setting/operation_setting/checkin_setting.go:26) 纳入 option 系统。
+ 
+- 用户侧接口：查询状态 / 执行签到
+  - 路由：用户登录后 `/api/user/checkin` GET/POST（见 [`selfRoute.GET("/checkin"...`](router/api-router.go:104)）。
+  - 状态接口返回随机/固定模式信息：[`controller.GetCheckinStatus()`](controller/checkin.go:16) 返回 `fixed_quota/random_mode/min_quota/max_quota`（见 [`"random_mode": setting.RandomMode`](controller/checkin.go:35)）。
+  - 执行签到：[`controller.DoCheckin()`](controller/checkin.go:49) 调用 [`model.UserCheckin(userId)`](controller/checkin.go:58) 并写系统日志（见 [`model.RecordLog(... "用户签到，获得额度" ...)`](controller/checkin.go:67)）。
+ 
+- 管理端 UI：系统设置里的“随机额度模式”开关
+  - 页面：[`SettingsCheckin`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:32)。
+  - 开关字段：[`Form.Switch field={'checkin_setting.random_mode'}`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:127)，并在“启用签到功能”关闭时禁用（见 [`disabled={!inputs['checkin_setting.enabled']}`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:135)）。
+  - 字段联动：随机模式下启用 `min_quota/max_quota`，固定模式下启用 `fixed_quota`（见 [`disabled ... isRandomMode`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:152) 与 [`disabled ... !isRandomMode`](web/src/pages/Setting/Operation/SettingsCheckin.jsx:167)）。
+11. 【已实现】OpenAI 文本 token 统计 CPU 优化：抽样真实计数校准 + 字符倍率估算（CPU 优先）
+
+- 目标：降低 `CountTextToken` 触发 `tiktoken-go/regexp2` 的频率，在允许小幅 usage 波动前提下优先降低 CPU。
+- 修改位置：`service/token_counter.go`（仅改 `CountTextToken` 的 OpenAI 文本模型分支；非 OpenAI 分支保持 `EstimateTokenByModel` 不变）。
+
+- 实现细节：
+  - 新增按 `model` 维度的内存校准器（`sync.Map` + 每模型 `mutex`），样本池固定容量 10。
+  - 样本项为 `(chars,tokens)`；`chars` 使用 `utf8.RuneCountInString`。
+  - 比率采用稳健口径：`ratio = sum(tokens_i) / sum(chars_i)`。
+  - 短文本噪声过滤：`chars < 64` 不入池。
+  - 池未满时：每次真实计数并入池，返回真实 token。
+  - 池已满时：默认估算 `int(chars * ratio)` 返回；并进行 1% 抽样真实计数更新池（环形 FIFO 替换）。
+  - 低流量兜底：距离上次真实校准超过 300s 强制一次真实计数更新池。
+  - 估算结果夹逼：下限 0，上限 `chars*4`，避免异常倍率放大。
+
+- 并发与性能：
+  - 校准器结构线程安全：`sync.Map` 保存 `*tokenCalibrator`，每实例内部 `sync.Mutex`。
+  - 抽样计数使用轻量计数器（`atomic`）实现，估算路径仅 `RuneCount + 算术 + 少量状态读取`。
+
+- 行为说明（代码注释已加）：
+  - 本地快速路径为近似计数，会轻微影响内部预扣与部分回填给客户端的 `usage.prompt_tokens`。
+  - 该波动是有意设计，目标为 CPU 优先，并通过持续真实抽样自适应校准。
+
+- 可选环境变量：
+  - `ENABLE_FAST_TIKTOKEN`（默认 `true`）
+  - `FAST_TIKTOKEN_SAMPLE_RATE`（默认 `0.01`）
+  - `FAST_TIKTOKEN_FORCE_REAL_SECONDS`（默认 `300`）
+
+12. 【已实现】应用层 gin gzip 增加环境开关（默认关闭，启用时 BestSpeed）
+
+- 目标：避免在上游 nginx 已压缩时，应用层 `gin-contrib/gzip` 继续占用 CPU（`compress/flate` 热点）。
+- 修改文件：
+  - `router/web-router.go`
+  - `router/api-router.go`
+  - `router/dashboard.go`
+
+- 行为变更：
+  - 默认不启用应用层 gzip（`ENABLE_GIN_GZIP` 默认 `false`）。
+  - 当 `ENABLE_GIN_GZIP=true` 时才注册 gzip middleware。
+  - 启用时压缩级别固定为 `gzip.BestSpeed`（避免误用高压缩等级导致 CPU 升高）。
+
+- 实现说明：
+  - 复用现有 `common.GetEnvOrDefaultBool`（定义在 `common/env.go`），未新增重复 env helper。
+  - 三处原先的 `gzip.DefaultCompression` 已改为条件注册 + `gzip.BestSpeed`。
+
+- 验证建议：
+  - 默认关闭：不设置 `ENABLE_GIN_GZIP`（或设为 `false`），直连应用端口 `curl -I`，应看不到应用层添加的 `Content-Encoding: gzip`。
+  - 开启：设置 `ENABLE_GIN_GZIP=true` 重启后，直连应用端口 `curl -I` 应出现 `Content-Encoding: gzip`。
+  - pprof：默认关闭后，`compress/flate.(*compressor).deflate/findMatch` 热点应显著下降。
+
+13. 【已实现】CPU 驱动的自适应重试延时（env 开关，0~1s 动态调节）
+
+- 目标：在上游/自身高负载时自动“变慢”重试，降低瞬时并发与 CPU/IO 压力，避免重试风暴。
+- 行为：当启用后，系统监控每次采样 CPU 使用率时：
+  - 若 `cpu > threshold`：重试间隔 `+10ms`
+  - 若 `cpu <= threshold`：重试间隔 `-10ms`
+  - 间隔范围限制为 `[0, 1s]`；仅在 **发生重试** 时，才会在两次尝试之间 sleep。
+- 配置（环境变量）：
+  - `RETRY_DELAY_ADAPTIVE_ENABLED`（默认 `false`）
+  - `RETRY_DELAY_CPU_THRESHOLD`（默认 `50`，取值 0~100）
+  - `RETRY_DELAY_STEP_MS`（默认 `10`，每次调整的步进毫秒数）
+  - `RETRY_DELAY_MAX_MS`（默认 `1000`，最大重试间隔毫秒数）
+
+14. 【已实现】基于 pprof 证据的 Claude/OpenAI 兼容转换热路径最小性能修复
+
+- 背景与目标（保留外部行为）
+  - 已根据线上 pprof 热点，对 Claude/OpenAI 兼容转换中的高频 JSON 往返和重复扫描做最小改动优化，目标是降低 `dto.(*ClaudeRequest).SearchToolNameByToolCallId`、`dto.(*ClaudeMessage).ParseContent`、`dto.(*ClaudeMediaMessage).ParseMediaContent`、`dto.(*ClaudeRequest).ParseSystem` 所在热路径 CPU 与不必要的 `Marshal/Unmarshal` 开销。
+  - 约束保持不变：未修改对外 API、JSON tag、导出字段语义；新增缓存字段使用 `json:"-"`，不影响序列化。
+
+- 请求级 tool name 索引缓存
+  - 在 [`dto.ClaudeRequest`](dto/claude.go) 内新增非序列化字段 `toolNameByCallID map[string]string`，按 `tool_use.id -> tool_use.name` 懒加载建立索引。
+  - [`(*dto.ClaudeRequest).SearchToolNameByToolCallId()`](dto/claude.go) 现已改为：
+    - 空 `toolCallId` 直接返回空字符串；
+    - 首次查询时调用内部 `ensureToolNameIndex()` 扫描一次消息；
+    - 后续查询直接走 map，避免每次重新全量扫描并重复解析 `messages[*].content`。
+  - 索引构建仅收集 `type == "tool_use"` 且 `id/name` 非空的条目；解析失败时跳过该消息，保持原有兼容回退风格。
+
+- Claude 内容解析快路径
+  - 在 [`dto/claude.go`](dto/claude.go) 新增内部 helper `parseClaudeMediaMessagesFast(data any)` 与 `parseClaudeMediaMessageItemFast(item any)`。
+  - 快路径优先覆盖常见输入形态：
+    - `[]ClaudeMediaMessage`
+    - `[]*ClaudeMediaMessage`
+    - `[]any`
+    - `[]map[string]any`
+    - `nil`
+  - 对 `[]any` / `[]map[string]any`：
+    - 若元素已是 `ClaudeMediaMessage` 或 `*ClaudeMediaMessage`，直接复用；
+    - 其他单项仍允许回退到 [`common.Any2Type`](common/utils.go)，保留兼容性；
+    - 如果快路径过程中遇到无法按单项处理的内容，则整体回退到原有 `Any2Type[[]ClaudeMediaMessage]` 逻辑。
+  - 以下函数已切换到快路径实现，降低整块 `content/system` 的 `Marshal+Unmarshal` 次数：
+    - [`(*dto.ClaudeMessage).ParseContent()`](dto/claude.go)
+    - [`(*dto.ClaudeMediaMessage).ParseMediaContent()`](dto/claude.go)
+    - [`(*dto.ClaudeRequest).ParseSystem()`](dto/claude.go)
+
+- convert 路径的实际收益点
+  - [`service.ClaudeToOpenAIRequest()`](service/convert.go) 中 `tool_result` 分支仍保持原有行为：当 `mediaMsg.Name` 为空时，调用 [`SearchToolNameByToolCallId`](dto/claude.go) 回查名称。
+  - 由于该查询现在已变为“首次建索引 + 后续 O(1) map 查找”，因此无需在 `convert` 层做更大范围缓存改造，即可消除原来的“每个 tool_result 都重新扫描全部 messages 并重复解析”的热点开销。
+
+- 验证
+  - 新增 [`dto/claude_test.go`](dto/claude_test.go)：
+    - 覆盖多条 messages / 多个 `tool_use` / `tool_result` 下的 `SearchToolNameByToolCallId` 正确性；
+    - 覆盖重复调用结果稳定；
+    - 覆盖 `ParseContent` / `ParseSystem` / `ParseMediaContent` 对 `[]ClaudeMediaMessage`、`[]any{map[string]any{...}}`、`nil`、字符串内容路径的兼容性；
+    - 增加基准，对比旧式全量扫描与新索引查找。
+
+15. 【已实现】流式 Flush 节流 + recent calls stream chunk 批量落盘（最小补丁）
+
+- 目标与约束
+  - 仅处理两处已确认热点：
+    - 流式 SSE 输出不再每个 chunk 无条件 `Flush`
+    - `recentCallsCache` 的 stream chunk 不再每片同步 `OpenFile/Write/Close`
+  - 保持 SSE 语义不变，不改协议，不做额外重构。
+
+- 流式 Flush 节流
+  - 修改文件：
+    - [`relay/helper/common.go`](relay/helper/common.go)
+    - [`relay/helper/stream_scanner.go`](relay/helper/stream_scanner.go)
+    - [`relay/channel/openai/helper.go`](relay/channel/openai/helper.go)
+  - 实现：
+    - 在 gin context 上增加内部 `streamFlushState`，维护：
+      - `pendingBytes`
+      - `lastFlushTime`
+    - 新增内部 helper：`maybeFlushWriter(c, force, wroteBytes)`。
+    - 普通流式 event 先写 response writer，再按阈值决定是否真正 flush：
+      - 字节阈值：8KiB
+      - 时间阈值：25ms
+    - 强制 flush 场景保持及时性：
+      - [`PingData`](relay/helper/common.go) 始终强制 flush
+      - [`Done`](relay/helper/common.go) 始终强制 flush
+      - [`StreamScannerHandler`](relay/helper/stream_scanner.go) defer 收尾时补一次 flush，避免 handler return 前残留未刷出
+    - [`StringData`](relay/helper/common.go)、[`ClaudeData`](relay/helper/common.go)、[`ClaudeChunkData`](relay/helper/common.go)、[`ResponseChunkData`](relay/helper/common.go) 已切到节流路径，不再每片直接 `FlushWriter`
+    - OpenAI->Gemini 流式转换中的两处直接 `Render+Flush` 也已改为走 [`helper.StringData`](relay/channel/openai/helper.go)，避免绕过节流层。
+
+- recent calls stream chunk 批量落盘
+  - 修改文件：
+    - [`service/recent_calls_cache.go`](service/recent_calls_cache.go)
+  - 实现：
+    - 在 `recentCallEntry` 增加 entry 级 `streamChunkBuf bytes.Buffer`
+    - [`AppendStreamChunkByContext`](service/recent_calls_cache.go) 仍保留：
+      - 单 chunk 截断逻辑
+      - 总量上限判断
+    - 但不再每片直接写文件，而是：
+      1. 将 chunk 编码为一行 JSONL
+      2. 追加到内存缓冲
+      3. 缓冲达到 16KiB 时一次性 append 到 `stream_chunks.jsonl`
+    - 新增底层批量写接口：
+      - `marshalJSONLStringLine`
+      - `appendRaw`
+      - `flushStreamChunkBuffer`
+    - 收尾刷盘位置：
+      - [`FinalizeStreamAggregatedTextByContext`](service/recent_calls_cache.go) 中写聚合文本前先 flush pending chunk buffer
+      - [`UpsertErrorByContext`](service/recent_calls_cache.go) 中也会尽量 flush，减少错误结束时丢尾巴概率
+      - [`materializeEntry`](service/recent_calls_cache.go) 读取 recent calls 前会先 flush，确保管理端查看时能看到最新 chunk
+
+- 验证
+  - 新增 [`relay/helper/common_test.go`](relay/helper/common_test.go)：
+    - 验证普通小 chunk 不会立刻 flush
+    - 验证 `PingData` 必定即时 flush
+    - 验证时间阈值到达后会触发 flush
+  - 新增 [`service/recent_calls_cache_test.go`](service/recent_calls_cache_test.go)：
+    - 验证 stream chunk 会先留在 entry 内存缓冲
+    - 验证 `FinalizeStreamAggregatedTextByContext` 会把 pending buffer 刷到 `stream_chunks.jsonl`
+    - 验证刷盘后 `Get()` 仍能正确读回 chunk 与 aggregated text
+
+16. 【已实现】修复流式 SSE 渲染 panic 与 pprof 监控自杀式异常退出
+
+- 修改文件：
+  - [`common/custom-event.go`](common/custom-event.go)
+  - [`common/custom-event_test.go`](common/custom-event_test.go)
+  - [`common/pprof.go`](common/pprof.go)
+  - [`relay/helper/stream_scanner.go`](relay/helper/stream_scanner.go)
+
+- 背景：
+  - 线上容器重启时抓到堆栈落在 [`common.CustomEvent.Render`](common/custom-event.go) -> `writeData`
+  - 旧实现对 `Data` 做了 `data.(string)` 强制断言，只要流式路径传入的不是 `string`，就会直接 panic，触发进程重启
+  - 同时 [`common.Monitor`](common/pprof.go) 在 CPU 采样失败时会 `panic(err)`，这会把原本只用于诊断的 pprof 监控变成新的退出源
+  - 进一步抓到 `fatal error: concurrent map iteration and map write`，堆栈落在 `gin responseWriter.Flush()`，说明流式 flush 节流收尾时和其他写协程并发操作了同一个 HTTP response header
+
+- 实现：
+  - [`writeData`](common/custom-event.go) 改为使用 `fmt.Sprint(data)` 序列化任意类型，不再依赖字符串类型断言
+  - 保留原有 SSE 数据写入与 `data:` 前缀补 `\n\n` 的行为
+  - `writeData` 现在会把底层 writer 错误向上返回，避免静默吞错
+  - [`Monitor`](common/pprof.go) 在 CPU 采样失败时改为记录系统日志并继续下一轮，不再 panic 杀进程
+  - [`StreamScannerHandler`](relay/helper/stream_scanner.go) 的 defer 收尾顺序改为：
+    - 先发停止信号并停止 ticker
+    - 等待 ping / scanner / data handler 协程退出
+    - 最后在 `writeMutex` 保护下串行执行 `FlushPendingWriter`
+  - 这样最终 flush 不会再和并发中的 `Render/WriteHeader` 交错执行，避免触发 `net/http.Header` 的并发 map fatal
+
+- 验证：
+  - 新增 [`common/custom-event_test.go`](common/custom-event_test.go)
+  - 覆盖：
+    - 字符串 SSE payload 仍保留 `\n\n` 结束符
+    - `map[string]any` 等非字符串 payload 不再 panic
+    - `nil` payload 不再 panic
+
+17. 【已实现】用户级平衡防泄漏管理（含前端开关、规则收敛、日志落库与 UI 修正）
+
+- 目标：
+  - 为用户提供默认开启的平衡防泄漏扫描；仅扫描最后 3 条 user/tool 等价消息，命中疑似高熵凭据时在转发前直接拦截。
+  - 不新增数据库字段，配置保存在 `user.setting` JSON 的 `disable_leak_protection_balanced`。
+
+- 后端规则与拦截：
+  - 入口在 [`controller.Relay()`](controller/relay.go)，由 [`service.CheckRequestLeakProtection()`](service/leak_protection.go) 在请求真正转发前执行。
+  - 三种格式等价支持：
+    - OpenAI Chat：[`dto/openai_request.go`](dto/openai_request.go)
+    - OpenAI Responses：[`dto/openai_request.go`](dto/openai_request.go)
+    - Anthropic Messages / tool-result 语义内容：[`dto/claude.go`](dto/claude.go)
+  - 当前检测器以 gitleaks 默认内嵌规则 [`config/gitleaks.toml`](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml) 为主；另外补了一条 `sk-[A-Za-z0-9]{40,}` 的后备规则，用于兜住默认规则未覆盖的 OpenAI 风格长串。
+  - 除 OpenAI Chat / Responses 与 Anthropic 外，Gemini 请求也已接入同一套审核；其余尚未单独适配的请求类型，会回退扫描 `GetTokenCountMeta().CombineText`，避免出现“有文本输入但完全不审核”的渠道盲区。
+
+- 前端与设置：
+  - 设置字段定义：[`dto/user_settings.go`](dto/user_settings.go)
+  - 保存逻辑：[`controller/user.go`](controller/user.go)
+  - 页面接线：[`web/src/components/settings/PersonalSetting.jsx`](web/src/components/settings/PersonalSetting.jsx)
+  - 独立卡片：[`web/src/components/settings/personal/cards/LeakProtectionSettings.jsx`](web/src/components/settings/personal/cards/LeakProtectionSettings.jsx)
+  - 后续又修正了卡片布局，把长文案拆成摘要 + 状态区 + 规则提示 + 保存区，避免开关和按钮被挤变形。
+
+- 使用日志：
+  - 命中防泄漏时除系统警告外，还会通过 [`model.RecordErrorLog()`](model/log.go) 写入使用日志（错误日志），便于用户回看被拦截请求。
+  - 对应实现位于 [`controller/relay.go`](controller/relay.go) 的 `recordLeakProtectionBlockedLog()`。
+  - 拦截报错文案补充为“可在个人设置中关闭该保护”，对应 [`service.NewLeakProtectionBlockedError()`](service/leak_protection.go)。
+
+- 涉及文件：
+  - [`service/leak_protection.go`](service/leak_protection.go)
+  - [`controller/relay.go`](controller/relay.go)
+  - [`dto/user_settings.go`](dto/user_settings.go)
+  - [`controller/user.go`](controller/user.go)
+  - [`dto/openai_request.go`](dto/openai_request.go)
+  - [`dto/claude.go`](dto/claude.go)
+  - [`model/log.go`](model/log.go)
+  - [`go.mod`](go.mod)
+  - [`web/src/components/settings/PersonalSetting.jsx`](web/src/components/settings/PersonalSetting.jsx)
+  - [`web/src/components/settings/personal/cards/LeakProtectionSettings.jsx`](web/src/components/settings/personal/cards/LeakProtectionSettings.jsx)
+
+- CI：
+  - 新增 [`CI workflow`](.github/workflows/ci.yml)，远端校验前端构建与 `go test ./...`，用于补足本机无 Bun / Go 的场景。
+
+18. 【已实现】客户端断开后停止外层重试，避免无接收方请求继续放大
+
+- 目标：
+  - 当下游客户端连接已经关闭时，外层 relay 重试循环不再继续选择渠道或发起下一次上游请求。
+  - 解决非流式请求在客户端断开后，仍可能因上游返回可重试错误而继续重试的问题。
+
+- 实现：
+  - 在 [`controller.Relay()`](controller/relay.go) 的普通 relay 外层重试循环中增加断开检查：
+    - 每轮开始前先检查 `c.Request.Context().Err()`，若客户端已断开则直接退出循环，避免再选渠道/读 body/发起上游请求。
+    - 单次上游调用返回错误并完成错误记录后，再次检查客户端是否已断开；若已断开，则跳过 `shouldRetry` 与后续 retry sleep，确保不会进入下一轮。
+  - 在 [`controller.RelayTask()`](controller/relay.go) 的 task relay 重试循环中同步增加相同保护，避免异步任务提交类请求在客户端断开后继续重试提交。
+  - 新增内部 helper [`shouldStopRetryForClientDisconnect()`](controller/relay.go)，统一判断 `c.Request.Context().Err()` 并记录 `client disconnected, stop relay retry` 日志，避免普通 relay 与 task relay 两处重复实现。
+
+- 行为说明：
+  - 该修改只阻止“下一次重试”；当前已经发出的上游请求是否立即取消，仍取决于对应上游请求是否绑定客户端 context。
+  - 流式路径原本已在 stream scanner 中监听 `c.Request.Context().Done()`，本次修改补齐的是外层 retry loop 的统一兜底。
+  - 自适应重试延时仍保留原有行为；但即使当前 retry delay 为 0，也会因为新增显式检查而停止继续重试。
+
+- 验证：
+  - 新增 [`controller/relay_retry_test.go`](controller/relay_retry_test.go)，覆盖请求 context 未取消时不拦截、取消后拦截重试的 helper 行为。
+
+19. 【已实现】Claude 输入 token 为 0 时按本地估算 token 兜底计费
+
+- 目标：
+  - Claude 格式请求在部分上游/转换链路下可能返回 `input_tokens=0` 或缺失输入 token，导致消费日志与计费中的输入 token 变成 0。
+  - 当请求前已经完成本地 token 估算时，若 Claude 响应 usage 的输入 token 为 0，则使用估算值作为 prompt/input token 参与计费与日志记录。
+
+- 实现：
+  - 在 [`service.PostClaudeConsumeQuota()`](service/quota.go) 的 Claude 计费入口增加兜底：
+    - `usage.PromptTokens == 0`
+    - 且 [`relayInfo.GetEstimatePromptTokens()`](relay/common/relay_info.go) 大于 0
+    - 则把 `promptTokens` 与 `usage.PromptTokens` 更新为估算值，并重算 `usage.TotalTokens`
+  - 同时设置 [`constant.ContextKeyLocalCountTokens`](constant/context_key.go)，让消费日志 `other.admin_info.local_count_tokens=true` 标识本次 token 来自本地估算。
+
+- 行为说明：
+  - 只在 Claude 输入 token 为 0 时触发，不覆盖上游返回的正常非 0 usage。
+  - 缓存 token、cache creation token、completion token 仍按上游返回值处理；本次只补齐缺失的输入 token。
+  - 若本地估算也为 0（例如关闭 `CountToken`），则保持原行为，不强行收费。
+
+20. 【已实现】易支付主动查单补单（充值与订阅，自动近 10 分钟补偿 + 管理员全量扫描接口）
+
+- 目标：
+  - 解决易支付平台已支付成功但异步 notify 未到达站点时，普通充值订单或订阅订单长期停留在 `pending` 的问题。
+  - 自动任务只处理低风险的“最近 10 分钟内 pending 易支付订单”；历史积压订单通过管理员主动接口按需扫描，避免一次性打爆支付平台查单接口。
+
+- 主动查单：
+  - 新增 [`service.QueryEpayOrder()`](service/epay_reconcile.go) 调用易支付查单接口：
+    - 根据当前 `PayAddress` 推导 `/api.php`
+    - 请求参数为 `act=order&pid=...&key=...&out_trade_no=...`
+    - 返回结构映射为 [`service.EpayOrderQueryResult`](service/epay_reconcile.go)
+  - 查单 HTTP 超时默认 15 秒，可通过环境变量 `EPAY_ORDER_RECONCILE_HTTP_TIMEOUT_SECONDS` 调整。
+
+- 自动补单任务：
+  - 启动入口：[`service.StartEpayOrderReconcileTask()`](service/epay_reconcile.go)，在 [`main.go`](main.go) 中注册。
+  - 默认关闭，需设置 `EPAY_ORDER_RECONCILE_ENABLED=true` 才启用。
+  - 任务每分钟执行一次，扫描最近窗口内 `payment_method=epay` 且 `status=pending` 的普通充值订单与订阅订单：
+    - 普通充值：[`model.GetPendingEpayTopUps()`](model/topup.go) 查询 `top_ups`
+    - 订阅订单：[`model.GetPendingEpaySubscriptionOrders()`](model/subscription.go) 查询 `subscription_orders`
+  - 自动窗口默认 10 分钟：`EPAY_ORDER_RECONCILE_AUTO_WINDOW_SECONDS=600`。
+  - 每轮批量大小默认 100：`EPAY_ORDER_RECONCILE_BATCH_SIZE=100`。
+
+- 管理员主动全量扫描接口：
+  - 新增路由：`POST /api/user/topup/epay/reconcile`，挂在管理员用户路由下（[`router.SetApiRouter()`](router/api-router.go)）。
+  - 控制器：[`controller.AdminReconcileEpayTopUps()`](controller/topup.go)。
+  - 请求参数：
+    - `dry_run`：默认 `true`，只查平台状态并返回将要执行的动作；传 `false` 才真正补单。
+    - `limit`：限制本次扫描条数；传负数可全量扫描匹配范围。
+    - `max_age_seconds` / `max_age_days`：只扫描指定时间范围内的 pending 订单。
+    - `min_age_seconds`：跳过太新的订单。
+  - 返回 [`service.EpayReconcileReport`](service/epay_reconcile.go)，包含 `scanned/queried/completed/skipped/failed` 与每笔订单的 `order_type/action`。
+
+- 入账安全：
+  - 只在平台返回 `code=1` 且 `status=1` 时补单。
+  - 补单前校验：
+    - 平台 `out_trade_no` 必须等于本地订单号
+    - 平台 `pid` 必须等于当前商户号
+    - 平台 `money` 必须与本地订单金额匹配（普通充值对比 `top_ups.money`，订阅对比 `subscription_orders.money`）
+  - 平台 `status=0`、失败、退款或未支付类状态不会改本地订单状态，只在报告中标记 `provider_pending` 等跳过动作。
+  - 入账函数 [`model.CompleteEpayTopUpByQuery()`](model/topup.go) 使用事务和行级锁读取订单，只有 `pending` 的 `epay` 订单会完成；已成功订单直接幂等返回，避免 notify 与主动查单并发导致重复加额度。
+  - 订阅补单调用 [`model.CompleteSubscriptionOrder()`](model/subscription.go)，只开通订阅权益并通过既有 [`upsertSubscriptionTopUpTx()`](model/subscription.go) 写支付流水，不会按普通充值给用户增加余额。
+  - 原异步回调 [`controller.EpayNotify()`](controller/topup.go) 也改为复用同一个完成函数，统一幂等补单路径。
+
+21. 【已实现】relay 热路径性能优化：复用泄漏检测器并避免禁用字段整包 JSON 重写
+
+- 背景：
+  - 远程实例 pprof 显示，relay 请求路径中泄漏保护会反复构建 gitleaks detector，触发大量 aho-corasick trie 构建分配。
+  - `RemoveDisabledFields()` 为删除少量顶层字段，会把完整请求 JSON 解码为 `map[string]interface{}` 后再重新编码，放大大请求的 CPU 与分配成本。
+
+- 泄漏保护优化：
+  - 在 [`service/leak_protection.go`](service/leak_protection.go) 中新增 detector pool：
+    - 默认 gitleaks config 仍通过 `sync.Once` 初始化。
+    - 每次扫描从 `sync.Pool` 获取已构建好 prefilter trie 的 detector，用完放回，避免每段文本扫描都执行 `gitleaksdetect.NewDetector()`。
+    - 扫描前先 `strings.TrimSpace()`，空白文本直接跳过，减少无意义 detector 调用。
+  - 保留原有行为：
+    - 仍优先使用 gitleaks 默认规则。
+    - 未命中时继续使用 `sk-[A-Za-z0-9]{40,}` 后备规则。
+    - 仍只扫描提取出的请求文本片段，不改变用户侧开关语义。
+
+- 禁用字段过滤优化：
+  - 在 [`relay/common/relay_info.go`](relay/common/relay_info.go) 中改造 `RemoveDisabledFields()`：
+    - 先用 `bytes.Contains()` 做字段名快速判断，请求体不含目标字段时直接返回原始 `jsonData`。
+    - 使用既有 `gjson` 判断路径是否存在，使用既有 `sjson.DeleteBytes()` 删除字段，替代完整 `map[string]interface{}` 解码与重编码。
+    - 继续支持删除：
+      - `service_tier`
+      - `inference_geo`
+      - `store`
+      - `safety_identifier`
+      - `stream_options.include_obfuscation`
+    - 当 `stream_options.include_obfuscation` 删除后父对象为空时，继续删除 `stream_options`，保持原测试语义。
+  - 透传场景仍保持原行为：
+    - 全局 `PassThroughRequestEnabled` 开启时直接返回原始请求。
+    - 渠道 `PassThroughBodyEnabled` 开启时直接返回原始请求。
+
+- 测试：
+  - 在 [`relay/common/override_test.go`](relay/common/override_test.go) 中新增 `TestRemoveDisabledFieldsNoTargetFieldsReturnsOriginalBytes`，覆盖无目标字段时直接返回原始 JSON bytes 的 fast path。
+  - 已在 `10.64.0.101` 的 `/tmp/newapi-test-src` 测试副本中执行：
+    - `go test ./service ./relay/common`
