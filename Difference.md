@@ -6,7 +6,7 @@
 
 - 口径与数据结构（后端聚合“最小单位=5分钟切片”）
   - 5 分钟切片对齐：[`model.AlignSliceStartTs()`](model/model_health_slice.go:44) 使用 `createdAt - (createdAt % 300)`（`300s` 常量见 [`modelHealthSliceSeconds`](model/model_health_slice.go:13)）。
-  - “成功且满足阈值”判定：[`model.IsQualifiedSuccess()`](model/model_health_slice.go:48) 实现 `responseBytes > 1024 || completionTokens > 2 || assistantChars > 2`；事件归一化在 [`(*model.ModelHealthEvent).Normalize()`](model/model_health_slice.go:52) 内计算 `SuccessIsQualified`。
+  - “成功且满足阈值”判定：普通模型由 [`model.IsQualifiedSuccess()`](model/model_health_slice.go:49) 使用 `responseBytes > 1024 || completionTokens > 2 || assistantChars > 2`；模型名以 `whisper` 开头（不区分大小写）时使用独立口径 `responseBytes >= 100`，不再要求输出 token 或 assistant 文本长度。错误事件仍由 [`(*model.ModelHealthEvent).Normalize()`](model/model_health_slice.go:53) 强制判为失败。
   - 新表结构：[`model.ModelHealthSlice5m`](model/model_health_slice.go:16) 映射表名 `model_health_slice_5m`（[`ModelHealthSlice5m.TableName()`](model/model_health_slice.go:29)）；主键为 `(model_name, slice_start_ts)`，并带按时间/模型索引字段（gorm tag 见 [`model.ModelHealthSlice5m`](model/model_health_slice.go:16)）。
 
 - 写入路径与性能设计（异步队列 + UPSERT）

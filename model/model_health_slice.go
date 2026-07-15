@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -46,7 +47,10 @@ func AlignSliceStartTs(createdAt int64) int64 {
 	return createdAt - (createdAt % modelHealthSliceSeconds)
 }
 
-func IsQualifiedSuccess(responseBytes, completionTokens, assistantChars int) bool {
+func IsQualifiedSuccess(modelName string, responseBytes, completionTokens, assistantChars int) bool {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelName)), "whisper") {
+		return responseBytes >= 100
+	}
 	return responseBytes > 1024 || completionTokens > 2 || assistantChars > 2
 }
 
@@ -63,7 +67,7 @@ func (e *ModelHealthEvent) Normalize() error {
 	if e.ResponseBytes < 0 || e.CompletionTokens < 0 || e.AssistantChars < 0 {
 		return errors.New("metrics must be non-negative")
 	}
-	e.SuccessIsQualified = !e.IsError && IsQualifiedSuccess(e.ResponseBytes, e.CompletionTokens, e.AssistantChars)
+	e.SuccessIsQualified = !e.IsError && IsQualifiedSuccess(e.ModelName, e.ResponseBytes, e.CompletionTokens, e.AssistantChars)
 	e.HasMetricsAvailable = e.ResponseBytes > 0 || e.CompletionTokens > 0 || e.AssistantChars > 0
 	return nil
 }
