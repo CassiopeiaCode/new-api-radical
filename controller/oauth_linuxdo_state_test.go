@@ -15,8 +15,6 @@ import (
 )
 
 func TestLinuxDOStateOriginMatchesRequest(t *testing.T) {
-	t.Setenv("LINUXDO_OAUTH_ALLOWED_ORIGINS", "https://elysiver.h-e.top,https://elysia.h-e.top")
-
 	tests := []struct {
 		name          string
 		origin        string
@@ -30,7 +28,7 @@ func TestLinuxDOStateOriginMatchesRequest(t *testing.T) {
 			want:          true,
 		},
 		{
-			name:          "allowlisted HTTPS origin terminated to HTTP",
+			name:          "HTTPS origin terminated to HTTP on the same host",
 			origin:        "https://elysiver.h-e.top",
 			currentOrigin: "http://elysiver.h-e.top",
 			want:          true,
@@ -42,10 +40,10 @@ func TestLinuxDOStateOriginMatchesRequest(t *testing.T) {
 			want:          false,
 		},
 		{
-			name:          "non allowlisted host is rejected",
+			name:          "same host does not require a configured allowlist",
 			origin:        "https://unlisted.example",
 			currentOrigin: "http://unlisted.example",
-			want:          false,
+			want:          true,
 		},
 	}
 
@@ -79,14 +77,12 @@ func signedLinuxDOStateForTest(t *testing.T, origin string) string {
 
 func TestRelayLinuxDOCallbackForwardsOnlyCrossSiteState(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	t.Setenv("LINUXDO_OAUTH_ALLOWED_ORIGINS", "https://elysiver.h-e.top,https://elysia.h-e.top")
-	t.Setenv("LINUXDO_OAUTH_CALLBACK_URL", "https://elysiver.h-e.top/api/oauth/linuxdo")
 
-	t.Run("forwards a signed elysia state from the fixed callback", func(t *testing.T) {
-		state := signedLinuxDOStateForTest(t, "https://elysia.h-e.top")
+	t.Run("forwards a signed elysiver state from the operator callback", func(t *testing.T) {
+		state := signedLinuxDOStateForTest(t, "https://elysiver.h-e.top")
 		recorder := httptest.NewRecorder()
 		context, _ := gin.CreateTestContext(recorder)
-		context.Request = httptest.NewRequest(http.MethodGet, "http://elysiver.h-e.top/api/oauth/linuxdo?code=authorization-code&state="+url.QueryEscape(state), nil)
+		context.Request = httptest.NewRequest(http.MethodGet, "http://elysia.h-e.top/api/oauth/linuxdo?code=authorization-code&state="+url.QueryEscape(state), nil)
 
 		if !relayLinuxDOCallback(context, state) {
 			t.Fatal("expected the fixed callback to relay a cross-site state")
@@ -95,16 +91,16 @@ func TestRelayLinuxDOCallbackForwardsOnlyCrossSiteState(t *testing.T) {
 			t.Fatalf("status = %d, want %d", recorder.Code, http.StatusFound)
 		}
 		location := recorder.Header().Get("Location")
-		if !strings.HasPrefix(location, "https://elysia.h-e.top/api/oauth/linuxdo?") {
+		if !strings.HasPrefix(location, "https://elysiver.h-e.top/api/oauth/linuxdo?") {
 			t.Fatalf("unexpected relay location: %q", location)
 		}
 	})
 
 	t.Run("keeps a same-site state on the callback host", func(t *testing.T) {
-		state := signedLinuxDOStateForTest(t, "https://elysiver.h-e.top")
+		state := signedLinuxDOStateForTest(t, "https://elysia.h-e.top")
 		recorder := httptest.NewRecorder()
 		context, _ := gin.CreateTestContext(recorder)
-		context.Request = httptest.NewRequest(http.MethodGet, "http://elysiver.h-e.top/api/oauth/linuxdo?state="+url.QueryEscape(state), nil)
+		context.Request = httptest.NewRequest(http.MethodGet, "http://elysia.h-e.top/api/oauth/linuxdo?state="+url.QueryEscape(state), nil)
 
 		if relayLinuxDOCallback(context, state) {
 			t.Fatal("same-site state must be validated locally instead of relayed")

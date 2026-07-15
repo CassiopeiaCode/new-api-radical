@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -50,33 +49,21 @@ func (p *LinuxDOProvider) ExchangeToken(ctx context.Context, code string, c *gin
 
 	logger.LogDebug(ctx, "[OAuth-LinuxDO] ExchangeToken: code=%s...", code[:min(len(code), 10)])
 
-	// A multi-site deployment registers one fixed callback with LinuxDO. The
-	// callback safely relays the authorization code to the signed source site,
-	// which performs the session-bound token exchange.
-	if configured := os.Getenv("LINUXDO_OAUTH_CALLBACK_URL"); configured != "" {
-		redirectURI := configured
-		return p.exchangeTokenWithRedirectURI(ctx, code, redirectURI)
-	}
-	// Get redirect URI from request for the normal single-site deployment.
-	scheme := "http"
-	if c.Request.TLS != nil {
-		scheme = "https"
-	}
-	redirectURI := fmt.Sprintf("%s://%s/api/oauth/linuxdo", scheme, c.Request.Host)
-
-	return p.exchangeTokenWithRedirectURI(ctx, code, redirectURI)
+	// LinuxDO owns the single callback configured by the operator. The
+	// authorization request does not send redirect_uri, so its token exchange
+	// must not manufacture a second, host-dependent redirect_uri either.
+	return p.exchangeToken(ctx, code)
 }
 
-func (p *LinuxDOProvider) exchangeTokenWithRedirectURI(ctx context.Context, code, redirectURI string) (*OAuthToken, error) {
+func (p *LinuxDOProvider) exchangeToken(ctx context.Context, code string) (*OAuthToken, error) {
 	tokenEndpoint := common.GetEnvOrDefaultString("LINUX_DO_TOKEN_ENDPOINT", "https://connect.linux.do/oauth2/token")
 	credentials := common.LinuxDOClientId + ":" + common.LinuxDOClientSecret
 	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(credentials))
-	logger.LogDebug(ctx, "[OAuth-LinuxDO] ExchangeToken: token_endpoint=%s, redirect_uri=%s", tokenEndpoint, redirectURI)
+	logger.LogDebug(ctx, "[OAuth-LinuxDO] ExchangeToken: token_endpoint=%s", tokenEndpoint)
 
 	data := url.Values{}
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", code)
-	data.Set("redirect_uri", redirectURI)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", tokenEndpoint, strings.NewReader(data.Encode()))
 	if err != nil {

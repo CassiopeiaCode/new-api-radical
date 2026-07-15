@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -46,29 +45,6 @@ func normalizedHTTPSOrigin(raw string) (string, bool) {
 	return "https://" + strings.ToLower(u.Host), true
 }
 
-func linuxDOAllowedOrigin(origin string, currentOrigin string) bool {
-	if origin == currentOrigin {
-		return true
-	}
-	for _, candidate := range strings.Split(os.Getenv("LINUXDO_OAUTH_ALLOWED_ORIGINS"), ",") {
-		allowed, ok := normalizedHTTPSOrigin(candidate)
-		if ok && origin == allowed {
-			return true
-		}
-	}
-	return false
-}
-
-func linuxDOOriginInConfiguredAllowlist(origin string) bool {
-	for _, candidate := range strings.Split(os.Getenv("LINUXDO_OAUTH_ALLOWED_ORIGINS"), ",") {
-		allowed, ok := normalizedHTTPSOrigin(candidate)
-		if ok && origin == allowed {
-			return true
-		}
-	}
-	return false
-}
-
 func signLinuxDOState(payload string) string {
 	h := hmac.New(sha256.New, []byte(common.SessionSecret))
 	_, _ = h.Write([]byte(payload))
@@ -78,7 +54,7 @@ func signLinuxDOState(payload string) string {
 func createLinuxDOState(c *gin.Context, session sessions.Session, origin string) (string, error) {
 	currentOrigin := requestOrigin(c)
 	normalized, ok := normalizedHTTPSOrigin(origin)
-	if !ok || !linuxDOAllowedOrigin(normalized, currentOrigin) || (linuxDOCallbackOrigin() != "" && !linuxDOOriginInConfiguredAllowlist(normalized)) {
+	if !ok || !linuxDOStateOriginMatchesRequest(normalized, currentOrigin) {
 		return "", errors.New("LinuxDO OAuth origin is not allowed")
 	}
 	nonce := common.GetRandomString(32)
@@ -112,25 +88,13 @@ func parseLinuxDOState(state string) (*linuxDOOAuthState, error) {
 	return claims, nil
 }
 
-func linuxDOCallbackOrigin() string {
-	configured := os.Getenv("LINUXDO_OAUTH_CALLBACK_URL")
-	if configured == "" {
-		return ""
-	}
-	u, err := url.Parse(configured)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.Path != "/api/oauth/linuxdo" || u.RawQuery != "" || u.Fragment != "" {
-		return ""
-	}
-	return "https://" + strings.ToLower(u.Host)
-}
-
-// relayLinuxDOCallback returns true only when this request arrived at the
-// configured, fixed callback host and was safely handed back to the signed
-// source origin. The source host performs the session-bound validation.
+// relayLinuxDOCallback makes one bounded relay hop when LinuxDO calls the
+// operator-selected callback host but the signed state was created on another
+// site. Once the request reaches the source host, this returns false so that
+// the normal session-bound validation consumes the state locally.
 func relayLinuxDOCallback(c *gin.Context, state string) bool {
 	claims, err := parseLinuxDOState(state)
-	callbackOrigin := linuxDOCallbackOrigin()
-	if err != nil || callbackOrigin == "" || !linuxDOOriginInConfiguredAllowlist(claims.Origin) || !linuxDOStateOriginMatchesRequest(callbackOrigin, requestOrigin(c)) || claims.Origin == callbackOrigin {
+	if err != nil || linuxDOStateOriginMatchesRequest(claims.Origin, requestOrigin(c)) {
 		return false
 	}
 	query := url.Values{}
@@ -144,17 +108,15 @@ func relayLinuxDOCallback(c *gin.Context, state string) bool {
 }
 
 // linuxDOStateOriginMatchesRequest accepts an HTTPS origin that arrived as
-// HTTP only when the exact HTTPS origin is explicitly allowlisted. This is
-// needed for a TLS-terminating proxy that does not preserve
-// X-Forwarded-Proto. The state remains signed and session-bound, while hosts
-// outside the configured allowlist cannot use this compatibility path.
+// HTTP through a TLS-terminating proxy only when its host is unchanged. The
+// signed, expiring state and source-host session nonce remain mandatory.
 func linuxDOStateOriginMatchesRequest(origin string, currentOrigin string) bool {
 	if origin == currentOrigin {
 		return true
 	}
 
 	normalizedOrigin, ok := normalizedHTTPSOrigin(origin)
-	if !ok || !linuxDOOriginInConfiguredAllowlist(normalizedOrigin) {
+	if !ok {
 		return false
 	}
 	current, err := url.Parse(currentOrigin)
