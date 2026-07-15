@@ -116,6 +116,10 @@ var MemoryCacheEnabled bool
 
 var LogConsumeEnabled = true
 
+// LeakProtectionBalancedForceEnabled prevents users from opting out of
+// outbound credential scanning. The option system persists this setting.
+var LeakProtectionBalancedForceEnabled = false
+
 var TLSInsecureSkipVerify bool
 var InsecureTLSConfig = &tls.Config{InsecureSkipVerify: true}
 

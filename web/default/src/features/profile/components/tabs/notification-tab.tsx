@@ -408,6 +408,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
             id="leakProtection"
             className="shrink-0"
             checked={!settings.disable_leak_protection_balanced}
+            disabled={profile?.leak_protection_balanced_forced}
             onCheckedChange={(checked) =>
               updateField("disable_leak_protection_balanced", !checked)
             }

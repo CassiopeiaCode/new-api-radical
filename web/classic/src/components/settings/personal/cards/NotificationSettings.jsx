@@ -806,10 +806,15 @@ const NotificationSettings = ({
                   label={t('出站凭据泄漏防护')}
                   checkedText={t('关')}
                   uncheckedText={t('开')}
+                  disabled={userState?.user?.leak_protection_balanced_forced === true}
                   onChange={(value) =>
                     handleFormChange('disableLeakProtectionBalanced', value)
                   }
-                  extraText={t('关闭后不会在请求发送到上游前拦截疑似 API 密钥')}
+                  extraText={
+                    userState?.user?.leak_protection_balanced_forced === true
+                      ? t('管理员已强制开启，不能关闭')
+                      : t('关闭后不会在请求发送到上游前拦截疑似 API 密钥')
+                  }
                 />
               </div>
             </TabPane>

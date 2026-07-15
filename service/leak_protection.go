@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	gitleaksconfig "github.com/zricethezav/gitleaks/v8/config"
 	gitleaksdetect "github.com/zricethezav/gitleaks/v8/detect"
@@ -20,7 +21,7 @@ var (
 )
 
 func IsLeakProtectionBalancedEnabled(setting dto.UserSetting) bool {
-	return !setting.DisableLeakProtectionBalanced
+	return common.LeakProtectionBalancedForceEnabled || !setting.DisableLeakProtectionBalanced
 }
 
 // CheckRequestLeakProtection examines normalized request text only. It never

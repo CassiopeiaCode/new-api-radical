@@ -3,6 +3,8 @@ package service
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
@@ -39,5 +41,21 @@ func TestValidateEpayResult(t *testing.T) {
 				t.Fatal("invalid provider result accepted")
 			}
 		})
+	}
+}
+
+func TestLeakProtectionForceOverridesUserOptOut(t *testing.T) {
+	original := common.LeakProtectionBalancedForceEnabled
+	t.Cleanup(func() { common.LeakProtectionBalancedForceEnabled = original })
+
+	setting := dto.UserSetting{DisableLeakProtectionBalanced: true}
+	common.LeakProtectionBalancedForceEnabled = false
+	if IsLeakProtectionBalancedEnabled(setting) {
+		t.Fatal("user opt-out should disable protection when no global policy is set")
+	}
+
+	common.LeakProtectionBalancedForceEnabled = true
+	if !IsLeakProtectionBalancedEnabled(setting) {
+		t.Fatal("global policy must override user opt-out")
 	}
 }

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { RateLimitSection } from '../request-limits/rate-limit-section'
+import { LeakProtectionSection } from '../request-limits/leak-protection-section'
 import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
 import { SSRFSection } from '../request-limits/ssrf-section'
 import { TokenLimitSection } from '../request-limits/token-limit-section'
@@ -24,6 +25,18 @@ import type { SecuritySettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 
 const SECURITY_SECTIONS = [
+  {
+    id: 'credential-protection',
+    titleKey: 'Outbound Credential Protection',
+    build: (settings: SecuritySettings) => (
+      <LeakProtectionSection
+        defaultValues={{
+          LeakProtectionBalancedForceEnabled:
+            settings.LeakProtectionBalancedForceEnabled,
+        }}
+      />
+    ),
+  },
   {
     id: 'rate-limit',
     titleKey: 'Rate Limiting',

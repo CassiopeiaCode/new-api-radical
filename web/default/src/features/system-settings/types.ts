@@ -363,6 +363,7 @@ export type OperationsSettings = {
 }
 
 export type SecuritySettings = {
+	LeakProtectionBalancedForceEnabled: boolean
   ModelRequestRateLimitEnabled: boolean
   ModelRequestRateLimitCount: number
   ModelRequestRateLimitSuccessCount: number

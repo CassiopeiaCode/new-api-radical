@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Spin } from '@douyinfe/semi-ui';
+import { Card, Spin, Switch, Toast } from '@douyinfe/semi-ui';
 
 import { API, showError, toBoolean } from '../../helpers';
 import { useTranslation } from 'react-i18next';
@@ -74,12 +74,44 @@ const RateLimitSetting = () => {
     onRefresh();
   }, []);
 
+  const updateForceLeakProtection = async (checked) => {
+    setLoading(true);
+    try {
+      const res = await API.put('/api/option/', {
+        key: 'LeakProtectionBalancedForceEnabled',
+        value: checked,
+      });
+      if (!res.data.success) {
+        showError(res.data.message);
+        return;
+      }
+      Toast.success({ content: t('更新成功') });
+      await getOptions();
+    } catch (error) {
+      showError(t('更新失败'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <>
       <Spin spinning={loading} size='large'>
         {/* AI请求速率限制 */}
         <Card style={{ marginTop: '10px' }}>
           <RequestRateLimit options={inputs} refresh={onRefresh} />
+        </Card>
+        <Card title={t('出站凭据泄漏防护')} style={{ marginTop: '10px' }}>
+          <div className='flex items-center justify-between gap-4'>
+            <div className='text-secondary text-sm'>
+              {t('开启后在转发前扫描疑似 API 密钥，用户无法在个人设置中关闭；扫描器异常时会安全阻断并记录脱敏错误。')}
+            </div>
+            <Switch
+              checked={!!inputs.LeakProtectionBalancedForceEnabled}
+              disabled={loading}
+              onChange={updateForceLeakProtection}
+            />
+          </div>
         </Card>
       </Spin>
     </>

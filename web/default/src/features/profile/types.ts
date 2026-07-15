@@ -69,6 +69,8 @@ export interface UserProfile {
   created_time: number;
   /** User settings (JSON string) */
   setting?: string;
+  /** True when an administrator has made outbound credential protection mandatory */
+  leak_protection_balanced_forced?: boolean;
   /** WeChat ID (OAuth) */
   wechat_id?: string;
   /** GitHub ID (OAuth) */
