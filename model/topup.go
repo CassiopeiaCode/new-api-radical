@@ -79,6 +79,61 @@ func GetTopUpByTradeNo(tradeNo string) *TopUp {
 	return topUp
 }
 
+func GetPendingEpayTopUps(limit int, minAgeSeconds, maxAgeSeconds int64) ([]*TopUp, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	now := common.GetTimestamp()
+	query := DB.Where("status = ? AND payment_provider = ?", common.TopUpStatusPending, PaymentProviderEpay)
+	if minAgeSeconds > 0 {
+		query = query.Where("create_time <= ?", now-minAgeSeconds)
+	}
+	if maxAgeSeconds > 0 {
+		query = query.Where("create_time >= ?", now-maxAgeSeconds)
+	}
+	var topUps []*TopUp
+	return topUps, query.Order("id ASC").Limit(limit).Find(&topUps).Error
+}
+
+// CompleteEpayTopUp atomically marks a pending EPay order successful and adds
+// quota exactly once. Callback and active reconciliation share this function.
+func CompleteEpayTopUp(tradeNo, actualPaymentMethod, callerIP string) error {
+	var completed *TopUp
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var topUp TopUp
+		if err := lockForUpdate(tx).Where("trade_no = ?", tradeNo).First(&topUp).Error; err != nil {
+			return ErrTopUpNotFound
+		}
+		if topUp.PaymentProvider != PaymentProviderEpay {
+			return ErrPaymentMethodMismatch
+		}
+		if topUp.Status == common.TopUpStatusSuccess {
+			return nil
+		}
+		if topUp.Status != common.TopUpStatusPending {
+			return ErrTopUpStatusInvalid
+		}
+		topUp.Status = common.TopUpStatusSuccess
+		topUp.CompleteTime = common.GetTimestamp()
+		if actualPaymentMethod != "" {
+			topUp.PaymentMethod = actualPaymentMethod
+		}
+		if err := tx.Save(&topUp).Error; err != nil {
+			return err
+		}
+		quota := decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart()
+		if err := tx.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", gorm.Expr("quota + ?", quota)).Error; err != nil {
+			return err
+		}
+		completed = &topUp
+		return nil
+	})
+	if err == nil && completed != nil {
+		RecordTopupLog(completed.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(int(completed.Amount*int64(common.QuotaPerUnit))), completed.Money), callerIP, completed.PaymentMethod, PaymentProviderEpay)
+	}
+	return err
+}
+
 func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, targetStatus string) error {
 	if tradeNo == "" {
 		return errors.New("未提供支付单号")
