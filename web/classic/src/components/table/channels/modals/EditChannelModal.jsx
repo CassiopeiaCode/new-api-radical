@@ -209,6 +209,8 @@ const EditChannelModal = (props) => {
     allow_inference_geo: false,
     allow_speed: false,
     claude_beta_query: false,
+    channel_request_rate_limit_count: 0,
+    channel_request_rate_limit_success_count: 0,
     upstream_model_update_check_enabled: false,
     upstream_model_update_auto_sync_enabled: false,
     upstream_model_update_last_check_time: 0,
@@ -909,6 +911,8 @@ const EditChannelModal = (props) => {
             parsedSettings.allow_inference_geo || false;
           data.allow_speed = parsedSettings.allow_speed || false;
           data.claude_beta_query = parsedSettings.claude_beta_query || false;
+          data.channel_request_rate_limit_count = Number.isInteger(parsedSettings.channel_request_rate_limit_count) && parsedSettings.channel_request_rate_limit_count > 0 ? parsedSettings.channel_request_rate_limit_count : 0;
+          data.channel_request_rate_limit_success_count = Number.isInteger(parsedSettings.channel_request_rate_limit_success_count) && parsedSettings.channel_request_rate_limit_success_count > 0 ? parsedSettings.channel_request_rate_limit_success_count : 0;
           data.upstream_model_update_check_enabled =
             parsedSettings.upstream_model_update_check_enabled === true;
           data.upstream_model_update_auto_sync_enabled =
@@ -939,6 +943,8 @@ const EditChannelModal = (props) => {
           data.allow_inference_geo = false;
           data.allow_speed = false;
           data.claude_beta_query = false;
+          data.channel_request_rate_limit_count = 0;
+          data.channel_request_rate_limit_success_count = 0;
           data.upstream_model_update_check_enabled = false;
           data.upstream_model_update_auto_sync_enabled = false;
           data.upstream_model_update_last_check_time = 0;
@@ -957,6 +963,8 @@ const EditChannelModal = (props) => {
         data.allow_inference_geo = false;
         data.allow_speed = false;
         data.claude_beta_query = false;
+        data.channel_request_rate_limit_count = 0;
+        data.channel_request_rate_limit_success_count = 0;
         data.upstream_model_update_check_enabled = false;
         data.upstream_model_update_auto_sync_enabled = false;
         data.upstream_model_update_last_check_time = 0;
@@ -1638,6 +1646,9 @@ const EditChannelModal = (props) => {
       }
     }
 
+    settings.channel_request_rate_limit_count = Math.max(0, Number.parseInt(localInputs.channel_request_rate_limit_count, 10) || 0);
+    settings.channel_request_rate_limit_success_count = Math.max(0, Number.parseInt(localInputs.channel_request_rate_limit_success_count, 10) || 0);
+
     // 如果是编辑模式且 key 为空字符串，避免提交空值覆盖旧密钥
     if (isEdit && (!localInputs.key || localInputs.key.trim() === '')) {
       delete localInputs.key;
@@ -1845,6 +1856,8 @@ const EditChannelModal = (props) => {
     delete localInputs.allow_inference_geo;
     delete localInputs.allow_speed;
     delete localInputs.claude_beta_query;
+    delete localInputs.channel_request_rate_limit_count;
+    delete localInputs.channel_request_rate_limit_success_count;
     delete localInputs.upstream_model_update_check_enabled;
     delete localInputs.upstream_model_update_auto_sync_enabled;
     delete localInputs.upstream_model_update_last_check_time;
@@ -2478,6 +2491,41 @@ const EditChannelModal = (props) => {
                         min={0}
                         onNumberChange={(value) => handleInputChange('weight', value)}
                         style={{ width: '100%' }}
+                      />
+                    </Col>
+                  </Row>
+
+                  <Row gutter={12}>
+                    <Col span={12}>
+                      <Form.InputNumber
+                        field='channel_request_rate_limit_count'
+                        label={t('渠道总请求 RPM')}
+                        min={0}
+                        step={1}
+                        style={{ width: '100%' }}
+                        extraText={t('该渠道滚动一分钟内的总请求上限，0 表示不限制')}
+                        onNumberChange={(value) =>
+                          handleChannelOtherSettingsChange(
+                            'channel_request_rate_limit_count',
+                            Math.max(0, Number(value) || 0),
+                          )
+                        }
+                      />
+                    </Col>
+                    <Col span={12}>
+                      <Form.InputNumber
+                        field='channel_request_rate_limit_success_count'
+                        label={t('渠道成功请求 RPM')}
+                        min={0}
+                        step={1}
+                        style={{ width: '100%' }}
+                        extraText={t('该渠道滚动一分钟内的成功请求上限，0 表示不限制；任一上限饱和都会跳过该渠道')}
+                        onNumberChange={(value) =>
+                          handleChannelOtherSettingsChange(
+                            'channel_request_rate_limit_success_count',
+                            Math.max(0, Number(value) || 0),
+                          )
+                        }
                       />
                     </Col>
                   </Row>

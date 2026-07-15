@@ -89,6 +89,8 @@ export interface ChannelSettings {
 }
 
 export interface ChannelOtherSettings {
+  channel_request_rate_limit_count?: number
+  channel_request_rate_limit_success_count?: number
   azure_responses_version?: string
   vertex_key_type?: 'json' | 'api_key'
   openrouter_enterprise?: boolean

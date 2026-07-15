@@ -3660,6 +3660,64 @@ export function ChannelMutateDrawer({
                               />
                             </div>
 
+                            <div className='grid gap-4 sm:grid-cols-2'>
+                              <FormField
+                                control={form.control}
+                                name='channel_request_rate_limit_count'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>{t('Channel request RPM')}</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min={0}
+                                        step={1}
+                                        placeholder='0'
+                                        {...field}
+                                        onChange={(e) =>
+                                          field.onChange(
+                                            Math.max(0, Number(e.target.value) || 0)
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t('Rolling one-minute limit for all requests on this channel; 0 disables it.')}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name='channel_request_rate_limit_success_count'
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>{t('Channel successful request RPM')}</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type='number'
+                                        min={0}
+                                        step={1}
+                                        placeholder='0'
+                                        {...field}
+                                        onChange={(e) =>
+                                          field.onChange(
+                                            Math.max(0, Number(e.target.value) || 0)
+                                          )
+                                        }
+                                      />
+                                    </FormControl>
+                                    <FormDescription>
+                                      {t('Rolling one-minute limit for successful requests; 0 disables it. Either channel limit can skip this channel.')}
+                                    </FormDescription>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+
                             <FormField
                               control={form.control}
                               name='test_model'

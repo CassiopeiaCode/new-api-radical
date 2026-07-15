@@ -196,6 +196,8 @@ export const channelFormSchema = z
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
     aws_key_type: z.enum(['ak_sk', 'api_key']).optional(), // AWS specific
     azure_responses_version: z.string().optional(), // Azure specific
+    channel_request_rate_limit_count: z.number().int().min(0).optional(),
+    channel_request_rate_limit_success_count: z.number().int().min(0).optional(),
     // Field passthrough controls (stored in settings JSON)
     allow_service_tier: z.boolean().optional(), // OpenAI/Anthropic
     disable_store: z.boolean().optional(), // OpenAI only
@@ -336,6 +338,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   vertex_key_type: 'json',
   aws_key_type: 'ak_sk',
   azure_responses_version: '',
+  channel_request_rate_limit_count: 0,
+  channel_request_rate_limit_success_count: 0,
   // Field passthrough controls
   allow_service_tier: false,
   disable_store: false,
@@ -391,6 +395,8 @@ export function transformChannelToFormDefaults(
   // Parse type-specific settings from settings field
   let vertexKeyType: 'json' | 'api_key' = 'json'
   let azureResponsesVersion = ''
+  let channelRequestRateLimitCount = 0
+  let channelRequestRateLimitSuccessCount = 0
   let isEnterpriseAccount = false
   let awsKeyType: 'ak_sk' | 'api_key' = 'ak_sk'
   let allowServiceTier = false
@@ -411,6 +417,12 @@ export function transformChannelToFormDefaults(
       const parsed = JSON.parse(channel.settings)
       vertexKeyType = parsed.vertex_key_type || 'json'
       azureResponsesVersion = parsed.azure_responses_version || ''
+      channelRequestRateLimitCount = Number.isInteger(parsed.channel_request_rate_limit_count) && parsed.channel_request_rate_limit_count > 0
+        ? parsed.channel_request_rate_limit_count
+        : 0
+      channelRequestRateLimitSuccessCount = Number.isInteger(parsed.channel_request_rate_limit_success_count) && parsed.channel_request_rate_limit_success_count > 0
+        ? parsed.channel_request_rate_limit_success_count
+        : 0
       isEnterpriseAccount = parsed.openrouter_enterprise === true
       awsKeyType = parsed.aws_key_type || 'ak_sk'
       allowServiceTier = parsed.allow_service_tier === true
@@ -471,6 +483,8 @@ export function transformChannelToFormDefaults(
     is_enterprise_account: isEnterpriseAccount,
     vertex_key_type: vertexKeyType,
     azure_responses_version: azureResponsesVersion,
+    channel_request_rate_limit_count: channelRequestRateLimitCount,
+    channel_request_rate_limit_success_count: channelRequestRateLimitSuccessCount,
     aws_key_type: awsKeyType,
     allow_service_tier: allowServiceTier,
     disable_store: disableStore,
@@ -545,6 +559,15 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   } else if ('aws_key_type' in settingsObj) {
     delete settingsObj.aws_key_type
   }
+
+  settingsObj.channel_request_rate_limit_count = Math.max(
+    0,
+    Math.trunc(formData.channel_request_rate_limit_count || 0)
+  )
+  settingsObj.channel_request_rate_limit_success_count = Math.max(
+    0,
+    Math.trunc(formData.channel_request_rate_limit_success_count || 0)
+  )
 
   // Field passthrough controls:
   // - OpenAI (type 1) and Anthropic (type 14): allow_service_tier
