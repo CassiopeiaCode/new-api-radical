@@ -178,6 +178,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         className: isAdmin() ? '' : 'tableHiddle',
       },
       {
+        text: t('Recent Calls'),
+        itemKey: 'recent_calls',
+        to: '/recent-calls',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
         text: t('用户管理'),
         itemKey: 'user',
         to: '/user',
