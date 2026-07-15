@@ -45,6 +45,7 @@ function OAuthCallback() {
     code?: string
     state?: string
     redirect?: string
+    uid?: string
   }
   const [mode, setMode] = useState<'login' | 'bind'>(() => {
     if (typeof window === 'undefined') return 'login'
@@ -112,9 +113,16 @@ function OAuthCallback() {
         }, 200)
       }
 
-      const finalizeLogin = async (): Promise<boolean> => {
+      const finalizeLogin = async (userId?: string): Promise<boolean> => {
         try {
-          const selfResponse = (await getSelf()) as {
+          const selfResponse = (userId
+            ? (
+                await api.get('/api/user/self', {
+                  headers: { 'New-Api-User': userId },
+                  skipErrorHandler: true,
+                })
+              ).data
+            : await getSelf()) as {
             success?: boolean
             data?: AuthUser | null
           }
@@ -162,7 +170,13 @@ function OAuthCallback() {
       // page. In that flow code/state have already been consumed; the session
       // cookie is the only result this page needs to read.
       if (!search?.code) {
-        if (provider === 'linuxdo' && (await finalizeLogin())) {
+        const userId = search?.uid
+        if (
+          provider === 'linuxdo' &&
+          userId &&
+          /^\d+$/.test(userId) &&
+          (await finalizeLogin(userId))
+        ) {
           redirectAfterLogin()
           return
         }

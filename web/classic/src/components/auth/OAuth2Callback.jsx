@@ -95,7 +95,15 @@ const OAuth2Callback = (props) => {
     // session 写入，因此本页没有 code 时直接用当前 session 完成登录。
     if (!code) {
       if (props.type === 'linuxdo') {
-        API.get('/api/user/self')
+        const userId = searchParams.get('uid');
+        if (!userId || !/^\d+$/.test(userId)) {
+          showError(t('授权失败'));
+          navigate('/console/personal');
+          return;
+        }
+        API.get('/api/user/self', {
+          headers: { 'New-API-User': userId },
+        })
           .then(({ data: resData }) => {
             if (resData?.success && resData.data) {
               userDispatch({ type: 'login', payload: resData.data });
