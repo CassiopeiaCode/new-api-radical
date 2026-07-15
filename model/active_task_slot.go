@@ -46,33 +46,6 @@ type HighActiveTaskRecord struct {
 
 func (HighActiveTaskRecord) TableName() string { return "high_active_task_records" }
 
-// ActiveTaskUsage is intentionally sourced from the existing quota_data
-// aggregate table. This keeps historic token accounting intact and avoids a
-// migration of the high-volume log tables.
-type ActiveTaskUsage struct {
-	ModelName    string `json:"model_name"`
-	TokenUsed    int64  `json:"token_used"`
-	RequestCount int64  `json:"request_count"`
-}
-
-func GetUserRecentTokenUsage(userID int, since int64, limit int) ([]ActiveTaskUsage, error) {
-	if userID <= 0 {
-		return nil, errors.New("invalid user id")
-	}
-	if limit <= 0 || limit > 100 {
-		limit = 100
-	}
-	usage := make([]ActiveTaskUsage, 0)
-	err := DB.Table("quota_data").
-		Select("model_name, SUM(token_used) AS token_used, SUM(count) AS request_count").
-		Where("user_id = ? AND created_at >= ?", userID, since).
-		Group("model_name").
-		Order("token_used DESC, model_name ASC").
-		Limit(limit).
-		Scan(&usage).Error
-	return usage, err
-}
-
 func ListHighActiveTaskRecords(pageInfo *common.PageInfo, userID int) ([]HighActiveTaskRecord, int64, error) {
 	query := DB.Model(&HighActiveTaskRecord{})
 	if userID > 0 {

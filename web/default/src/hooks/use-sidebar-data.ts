@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
-  Activity,
   Box,
   CreditCard,
   FileText,
@@ -114,11 +113,6 @@ export function useSidebarData(): SidebarData {
             title: t('Profile'),
             url: '/profile',
             icon: User,
-          },
-          {
-            title: t('My model usage'),
-            url: '/activity',
-            icon: Activity,
           },
         ],
       },

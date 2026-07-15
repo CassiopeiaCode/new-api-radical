@@ -142,12 +142,33 @@ func relayLinuxDOCallback(c *gin.Context, state string) bool {
 	return true
 }
 
+// linuxDOStateOriginMatchesRequest accepts an HTTPS origin that arrived as
+// HTTP only when the exact HTTPS origin is explicitly allowlisted. This is
+// needed for a TLS-terminating proxy that does not preserve
+// X-Forwarded-Proto. The state remains signed and session-bound, while hosts
+// outside the configured allowlist cannot use this compatibility path.
+func linuxDOStateOriginMatchesRequest(origin string, currentOrigin string) bool {
+	if origin == currentOrigin {
+		return true
+	}
+
+	normalizedOrigin, ok := normalizedHTTPSOrigin(origin)
+	if !ok || !linuxDOOriginInConfiguredAllowlist(normalizedOrigin) {
+		return false
+	}
+	current, err := url.Parse(currentOrigin)
+	if err != nil || current.Scheme != "http" || current.Host == "" || current.User != nil || current.RawQuery != "" || current.Fragment != "" || (current.Path != "" && current.Path != "/") {
+		return false
+	}
+	return normalizedOrigin == "https://"+strings.ToLower(current.Host)
+}
+
 func validateAndConsumeLinuxDOState(c *gin.Context, session sessions.Session, state string) (*linuxDOOAuthState, error) {
 	claims, err := parseLinuxDOState(state)
 	if err != nil {
 		return nil, err
 	}
-	if claims.Origin != requestOrigin(c) || session.Get("oauth_state") != claims.Nonce || session.Get("linuxdo_oauth_origin") != claims.Origin {
+	if !linuxDOStateOriginMatchesRequest(claims.Origin, requestOrigin(c)) || session.Get("oauth_state") != claims.Nonce || session.Get("linuxdo_oauth_origin") != claims.Origin {
 		return nil, errors.New("LinuxDO OAuth state does not match this session")
 	}
 	session.Delete("oauth_state")

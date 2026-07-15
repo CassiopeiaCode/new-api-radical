@@ -51,7 +51,6 @@ const routerMap = {
   personal: '/console/personal',
   fingerprint: '/console/fingerprint',
   active_tasks: '/console/active-tasks',
-  activity: '/console/activity',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -136,11 +135,6 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('个人设置'),
         itemKey: 'personal',
         to: '/personal',
-      },
-      {
-        text: t('My model usage'),
-        itemKey: 'activity',
-        to: '/activity',
       },
     ];
 

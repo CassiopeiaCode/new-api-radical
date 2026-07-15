@@ -5178,6 +5178,14 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Active tasks": "Active tasks",
+    "Active slots": "Active slots",
+    "Active users": "Active users",
+    "Per-user limit": "Per-user limit",
+    "Current usage": "Current usage",
+    "Active task history": "Active task history",
+    "Global slots": "Global slots",
+    "Failed to load active tasks": "Failed to load active tasks"
   }
 }

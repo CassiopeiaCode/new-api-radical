@@ -2,7 +2,6 @@ package controller
 
 import (
 	"strconv"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -26,16 +25,4 @@ func GetHighActiveTaskHistory(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(records)
 	common.ApiSuccess(c, pageInfo)
-}
-
-// GetMyRecentTokenUsage is intentionally authenticated as the current user;
-// there is no user-id selector on this route, preventing cross-account usage
-// disclosure. quota_data is hourly, so the time range begins at 24 hours ago.
-func GetMyRecentTokenUsage(c *gin.Context) {
-	usage, err := model.GetUserRecentTokenUsage(c.GetInt("id"), time.Now().Add(-24*time.Hour).Unix(), 100)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	common.ApiSuccess(c, gin.H{"window_hours": 24, "items": usage})
 }

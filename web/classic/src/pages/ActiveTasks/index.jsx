@@ -8,9 +8,11 @@ License, or (at your option) any later version.
 */
 import React, { useEffect, useState } from 'react';
 import { Button, Card, Table } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../helpers';
 
 export default function ActiveTasks() {
+  const { i18n, t } = useTranslation();
   const [stats, setStats] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -24,7 +26,7 @@ export default function ActiveTasks() {
       setStats(s.data?.data || null);
       setHistory(h.data?.data?.items || []);
     } catch (error) {
-      showError(error?.message || 'Failed to load active tasks');
+      showError(error?.message || t('Failed to load active tasks'));
     } finally {
       setLoading(false);
     }
@@ -33,41 +35,43 @@ export default function ActiveTasks() {
     load();
   }, []);
   const columns = [
-    { title: 'User', dataIndex: 'username' },
-    { title: 'User ID', dataIndex: 'user_id' },
-    { title: 'Active slots', dataIndex: 'active_slots' },
+    { title: t('User'), dataIndex: 'username' },
+    { title: t('User ID'), dataIndex: 'user_id' },
+    { title: t('Active slots'), dataIndex: 'active_slots' },
   ];
   const historyColumns = [
     ...columns,
-    { title: 'Global slots', dataIndex: 'global_active_slots' },
+    { title: t('Global slots'), dataIndex: 'global_active_slots' },
     {
-      title: 'Time',
-      render: (_, row) => new Date(row.created_at * 1000).toLocaleString(),
+      title: t('Time'),
+      render: (_, row) =>
+        new Date(row.created_at * 1000).toLocaleString(i18n.language),
     },
   ];
   return (
     <div className='mt-[60px] px-2'>
       <Card
-        title='Active tasks'
+        title={t('Active tasks')}
         headerExtraContent={
           <Button loading={loading} onClick={load}>
-            Refresh
+            {t('Refresh')}
           </Button>
         }
       >
         <p>
-          Active slots: {stats?.global_active_slots || 0} /{' '}
-          {stats?.global_limit || 0}; active users: {stats?.active_users || 0};
-          per-user limit: {stats?.user_limit || 0}
+          {t('Active slots')}: {stats?.global_active_slots || 0} /{' '}
+          {stats?.global_limit || 0}; {t('Active users')}:{' '}
+          {stats?.active_users || 0}; {t('Per-user limit')}:{' '}
+          {stats?.user_limit || 0}
         </p>
-        <h5>Current usage</h5>
+        <h5>{t('Current usage')}</h5>
         <Table
           columns={columns}
           dataSource={stats?.rank || []}
           pagination={false}
           rowKey='user_id'
         />
-        <h5 style={{ marginTop: 24 }}>Active task history</h5>
+        <h5 style={{ marginTop: 24 }}>{t('Active task history')}</h5>
         <Table
           columns={historyColumns}
           dataSource={history}

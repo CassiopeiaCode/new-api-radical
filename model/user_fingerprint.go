@@ -184,7 +184,10 @@ func GetDuplicateFingerprints(pageInfo *common.PageInfo) ([]DuplicateFingerprint
 		return nil, 0, err
 	}
 	var results []DuplicateFingerprint
-	lastSeen := "UNIX_TIMESTAMP(MAX(updated_at))"
+	// MySQL returns a fractional UNIX_TIMESTAMP for DATETIME values with
+	// microsecond precision. Cast it to an integer so it can be scanned into
+	// DuplicateFingerprint.LastSeen without changing historical data.
+	lastSeen := "CAST(UNIX_TIMESTAMP(MAX(updated_at)) AS SIGNED)"
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		lastSeen = "CAST(strftime('%s', MAX(updated_at)) AS INTEGER)"
 	} else if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {

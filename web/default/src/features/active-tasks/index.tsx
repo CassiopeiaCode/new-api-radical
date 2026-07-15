@@ -31,7 +31,7 @@ type History = {
 };
 
 export function ActiveTasks() {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [stats, setStats] = useState<Stats | null>(null);
   const [history, setHistory] = useState<History[]>([]);
   const [loading, setLoading] = useState(false);
@@ -75,13 +75,34 @@ export function ActiveTasks() {
           </div>
           <section>
             <h2 className="mb-2 text-lg font-semibold">{t("Current usage")}</h2>
-            <DataTable rows={stats?.rank ?? []} />
+            <DataTable
+              rows={stats?.rank ?? []}
+              locale={i18n.language}
+              labels={{
+                time: t('Time'),
+                user: t('User'),
+                userID: t('User ID'),
+                activeSlots: t('Active slots'),
+                globalSlots: t('Global slots'),
+              }}
+            />
           </section>
           <section>
             <h2 className="mb-2 text-lg font-semibold">
               {t("Active task history")}
             </h2>
-            <DataTable rows={history} history />
+            <DataTable
+              rows={history}
+              history
+              locale={i18n.language}
+              labels={{
+                time: t('Time'),
+                user: t('User'),
+                userID: t('User ID'),
+                activeSlots: t('Active slots'),
+                globalSlots: t('Global slots'),
+              }}
+            />
           </section>
         </div>
       </SectionPageLayout.Content>
@@ -101,20 +122,30 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 function DataTable({
   rows,
   history = false,
+  locale,
+  labels,
 }: {
   rows: Array<Record<string, unknown>>;
   history?: boolean;
+  locale: string;
+  labels: {
+    time: string;
+    user: string;
+    userID: string;
+    activeSlots: string;
+    globalSlots: string;
+  };
 }) {
   return (
     <div className="overflow-x-auto rounded-md border">
       <table className="w-full text-sm">
         <thead className="bg-muted/40 text-left">
           <tr>
-            {history && <th className="p-2">Time</th>}
-            <th className="p-2">User</th>
-            <th className="p-2">User ID</th>
-            <th className="p-2">Active slots</th>
-            {history && <th className="p-2">Global slots</th>}
+            {history && <th className="p-2">{labels.time}</th>}
+            <th className="p-2">{labels.user}</th>
+            <th className="p-2">{labels.userID}</th>
+            <th className="p-2">{labels.activeSlots}</th>
+            {history && <th className="p-2">{labels.globalSlots}</th>}
           </tr>
         </thead>
         <tbody>
@@ -125,7 +156,9 @@ function DataTable({
             >
               {history && (
                 <td className="p-2">
-                  {new Date(Number(row.created_at) * 1000).toLocaleString()}
+                  {new Date(Number(row.created_at) * 1000).toLocaleString(
+                    locale
+                  )}
                 </td>
               )}
               <td className="p-2">{String(row.username ?? "")}</td>

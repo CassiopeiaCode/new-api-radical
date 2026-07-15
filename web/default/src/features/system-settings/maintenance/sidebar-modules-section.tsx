@@ -128,12 +128,6 @@ export function SidebarModulesSection({
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
       },
-      activity: {
-        title: t('My model usage'),
-        description: t(
-          'Review your token usage by model for the last 24 hours.'
-        ),
-      },
     },
     admin: {
       channel: {

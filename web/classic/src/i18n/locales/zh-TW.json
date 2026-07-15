@@ -3677,6 +3677,18 @@
     "默认折叠侧边栏": "預設摺疊側邊欄",
     "默认测试模型": "預設測試模型",
     "默认用户消息": "你好",
-    "默认补全倍率": "預設補全倍率"
+    "默认补全倍率": "預設補全倍率",
+    "Active tasks": "活躍任務",
+    "Active slots": "活躍槽位",
+    "Active users": "活躍使用者",
+    "Per-user limit": "單一使用者上限",
+    "Current usage": "目前使用情況",
+    "Active task history": "活躍任務歷史",
+    "Global slots": "全域槽位",
+    "Failed to load active tasks": "載入活躍任務失敗",
+    "User": "使用者",
+    "User ID": "使用者 ID",
+    "Time": "時間",
+    "Refresh": "重新整理"
   }
 }

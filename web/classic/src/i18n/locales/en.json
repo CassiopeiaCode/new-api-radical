@@ -3830,6 +3830,18 @@
     "默认折叠侧边栏": "Default collapse sidebar",
     "默认测试模型": "Default Test Model",
     "默认用户消息": "Default User Message",
-    "默认补全倍率": "Default completion ratio"
+    "默认补全倍率": "Default completion ratio",
+    "Active tasks": "Active tasks",
+    "Active slots": "Active slots",
+    "Active users": "Active users",
+    "Per-user limit": "Per-user limit",
+    "Current usage": "Current usage",
+    "Active task history": "Active task history",
+    "Global slots": "Global slots",
+    "Failed to load active tasks": "Failed to load active tasks",
+    "User": "User",
+    "User ID": "User ID",
+    "Time": "Time",
+    "Refresh": "Refresh"
   }
 }

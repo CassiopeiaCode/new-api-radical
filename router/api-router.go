@@ -92,7 +92,6 @@ func SetApiRouter(router *gin.Engine) {
 
 		activeTaskRoute := apiRouter.Group("/active-task")
 		{
-			activeTaskRoute.GET("/usage/self", middleware.UserAuth(), controller.GetMyRecentTokenUsage)
 			activeTaskRoute.GET("/stats", middleware.AdminAuth(), controller.GetActiveTaskStats)
 			activeTaskRoute.GET("/history", middleware.AdminAuth(), controller.GetHighActiveTaskHistory)
 		}

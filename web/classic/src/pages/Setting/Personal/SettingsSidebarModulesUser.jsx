@@ -328,11 +328,6 @@ export default function SettingsSidebarModulesUser() {
       modules: [
         { key: 'topup', title: t('钱包管理'), description: t('余额充值管理') },
         {
-          key: 'activity',
-          title: t('My model usage'),
-          description: t('最近 24 小时按模型的 token 使用量'),
-        },
-        {
           key: 'personal',
           title: t('个人设置'),
           description: t('个人信息设置'),

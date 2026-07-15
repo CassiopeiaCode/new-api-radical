@@ -171,6 +171,7 @@
 - 回调完成身份验证后，只能跳转到来源白名单内的 HTTPS/受控站点；任何未授权 origin、协议、路径构造或 state 校验失败都必须安全拒绝或回落到默认站点。
 - 不得形成开放重定向，也不得把访问令牌、敏感 state 或用户信息透传给不受信任站点。
 - 多站点部署使用 `LINUXDO_OAUTH_CALLBACK_URL` 配置 LinuxDO 中登记的固定 HTTPS callback；来源站点由 `LINUXDO_OAUTH_ALLOWED_ORIGINS` 的逗号分隔 HTTPS origin 白名单控制。固定 callback 仅转交授权码与已签名 state 至来源站点，来源站点才可使用本地会话换取 token 并建立登录态。
+- 若可信 TLS 终止链路未保留原始协议头，只能对“同一 host、由 HTTP 形式到达、且该 HTTPS origin 已显式列入白名单”的回调做协议归一化；state 签名、短时有效期和会话 nonce 校验仍为必经条件，不能以此放宽跨 host 或未列入白名单的回调。
 
 ### 配置 / API / UI
 
@@ -223,15 +224,15 @@
 
 - 默认全局活跃任务槽位上限为 1000、单用户上限为 50，且均应可通过受控配置调整。
 - 使用 SimHash、多级匹配和 LRU 等策略识别和维护高活跃任务，兼顾相似任务归并、查找性能与内存上界。
-- 定时持久化高活跃状态，管理员能够查看历史活跃任务；用户能够查看最近 24 小时按模型聚合的 token 使用情况。
+- 定时持久化高活跃状态，管理员能够查看历史活跃任务。
 - 获取槽位、释放槽位、超时清理、失败回滚和服务重启恢复必须幂等，不能因异常导致永久占槽或超额放行。
 
 ### 配置 / API / UI
 
-- 管理端展示全局/用户槽位使用、活跃任务历史和必要的筛选维度；用户端仅展示本人 24 小时模型用量。
+- 管理端展示全局/用户槽位使用、活跃任务历史和必要的筛选维度；不新增普通用户模型用量页面。
 - 所有数据查询必须落实上游权限模型、分页限制和时间范围限制。
 - 槽位上限由 `ACTIVE_TASK_SLOT_GLOBAL_LIMIT`（默认 `1000`）和 `ACTIVE_TASK_SLOT_USER_LIMIT`（默认 `50`）控制；`ACTIVE_TASK_SLOT_LEASE_SECONDS` 控制异常路径的最终释放租约，默认两小时。所有值在服务端限定安全范围。
-- API：`GET /api/active-task/usage/self`（用户本人 24 小时按模型 token 聚合）；`GET /api/active-task/stats` 与 `GET /api/active-task/history`（管理员，历史接口分页且可按 `user_id` 筛选）。
+- API：`GET /api/active-task/stats` 与 `GET /api/active-task/history`（管理员，历史接口分页且可按 `user_id` 筛选）。
 
 ### 数据与兼容性
 

@@ -5178,6 +5178,14 @@
     "Zero retention": "零數據保留",
     "Zhipu": "智譜",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "Active tasks": "活躍任務",
+    "Active slots": "活躍槽位",
+    "Active users": "活躍使用者",
+    "Per-user limit": "單一使用者上限",
+    "Current usage": "目前使用情況",
+    "Active task history": "活躍任務歷史",
+    "Global slots": "全域槽位",
+    "Failed to load active tasks": "載入活躍任務失敗"
   }
 }
