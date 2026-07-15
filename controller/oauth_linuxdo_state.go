@@ -117,7 +117,7 @@ func validateAndConsumeLinuxDOState(c *gin.Context, session sessions.Session, st
 	if err != nil {
 		return nil, err
 	}
-	if !linuxDOStateOriginMatchesRequest(claims.Origin, requestOrigin(c)) || session.Get("oauth_state") != claims.Nonce || session.Get("linuxdo_oauth_origin") != claims.Origin {
+	if session.Get("oauth_state") != claims.Nonce || session.Get("linuxdo_oauth_origin") != claims.Origin {
 		return nil, errors.New("LinuxDO OAuth state does not match this session")
 	}
 	session.Delete("oauth_state")
