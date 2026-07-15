@@ -36,7 +36,6 @@ export let API = axios.create({
   },
 });
 
-
 function redirectToOAuthUrl(url, options = {}) {
   const { openInNewTab = false } = options;
   const targetUrl = typeof url === 'string' ? url : url.toString();
@@ -48,7 +47,6 @@ function redirectToOAuthUrl(url, options = {}) {
 
   window.location.assign(targetUrl);
 }
-
 
 function patchAPIInstance(instance) {
   const originalGet = instance.get.bind(instance);
@@ -240,11 +238,14 @@ export const processGroupsData = (data, userGroup) => {
 
 // 原来components中的utils.js
 
-export async function getOAuthState() {
+export async function getOAuthState(provider) {
   let path = '/api/oauth/state';
   let affCode = localStorage.getItem('aff');
   if (affCode && affCode.length > 0) {
     path += `?aff=${affCode}`;
+  }
+  if (provider === 'linuxdo') {
+    path += `${path.includes('?') ? '&' : '?'}provider=linuxdo&origin=${encodeURIComponent(window.location.origin)}`;
   }
   const res = await API.get(path);
   const { success, message, data } = res.data;
@@ -265,7 +266,7 @@ async function prepareOAuthState(options = {}) {
     localStorage.removeItem('user');
     updateAPI();
   }
-  return await getOAuthState();
+  return await getOAuthState(options.provider);
 }
 
 export async function onDiscordOAuthClicked(client_id, options = {}) {
@@ -308,7 +309,7 @@ export async function onLinuxDOOAuthClicked(
   linuxdo_client_id,
   options = { shouldLogout: false },
 ) {
-  const state = await prepareOAuthState(options);
+  const state = await prepareOAuthState({ ...options, provider: 'linuxdo' });
   if (!state) return;
   redirectToOAuthUrl(
     `https://connect.linux.do/oauth2/authorize?response_type=code&client_id=${linuxdo_client_id}&state=${state}`,

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { api } from './api'
+import { api } from "./api";
 
 // ============================================================================
 // OAuth URL Builders
@@ -26,23 +26,23 @@ import { api } from './api'
  * Build GitHub OAuth URL
  */
 export function buildGitHubOAuthUrl(clientId: string, state: string): string {
-  return `https://github.com/login/oauth/authorize?client_id=${clientId}&state=${state}&scope=user:email`
+  return `https://github.com/login/oauth/authorize?client_id=${clientId}&state=${state}&scope=user:email`;
 }
 
 /**
  * Build Discord OAuth URL
  */
 export function buildDiscordOAuthUrl(clientId: string, state: string): string {
-  const url = new URL('https://discord.com/oauth2/authorize')
-  url.searchParams.set('client_id', clientId)
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id", clientId);
   url.searchParams.set(
-    'redirect_uri',
-    `${window.location.origin}/oauth/discord`
-  )
-  url.searchParams.set('response_type', 'code')
-  url.searchParams.set('scope', 'identify+openid')
-  url.searchParams.set('state', state)
-  return url.toString()
+    "redirect_uri",
+    `${window.location.origin}/oauth/discord`,
+  );
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "identify+openid");
+  url.searchParams.set("state", state);
+  return url.toString();
 }
 
 /**
@@ -51,22 +51,22 @@ export function buildDiscordOAuthUrl(clientId: string, state: string): string {
 export function buildOIDCOAuthUrl(
   authUrl: string,
   clientId: string,
-  state: string
+  state: string,
 ): string {
-  const url = new URL(authUrl)
-  url.searchParams.set('client_id', clientId)
-  url.searchParams.set('redirect_uri', `${window.location.origin}/oauth/oidc`)
-  url.searchParams.set('response_type', 'code')
-  url.searchParams.set('scope', 'openid profile email')
-  url.searchParams.set('state', state)
-  return url.toString()
+  const url = new URL(authUrl);
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", `${window.location.origin}/oauth/oidc`);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "openid profile email");
+  url.searchParams.set("state", state);
+  return url.toString();
 }
 
 /**
  * Build LinuxDO OAuth URL
  */
 export function buildLinuxDOOAuthUrl(clientId: string, state: string): string {
-  return `https://connect.linux.do/oauth2/authorize?response_type=code&client_id=${clientId}&state=${state}`
+  return `https://connect.linux.do/oauth2/authorize?response_type=code&client_id=${clientId}&state=${state}`;
 }
 
 // ============================================================================
@@ -77,22 +77,27 @@ export function buildLinuxDOOAuthUrl(clientId: string, state: string): string {
  * Get OAuth state token
  * Includes affiliate code from localStorage if available
  */
-export async function getOAuthState(): Promise<string | null> {
+export async function getOAuthState(provider?: string): Promise<string | null> {
   try {
-    let path = '/api/oauth/state'
-    const affCode = localStorage.getItem('aff')
+    let path = "/api/oauth/state";
+    const affCode = localStorage.getItem("aff");
     if (affCode && affCode.length > 0) {
-      path += `?aff=${affCode}`
+      path += `?aff=${affCode}`;
     }
-    const res = await api.get(path)
+    const res = await api.get(path, {
+      params:
+        provider === "linuxdo"
+          ? { provider, origin: window.location.origin }
+          : undefined,
+    });
     if (res.data.success) {
-      return res.data.data
+      return res.data.data;
     }
-    return null
+    return null;
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('Failed to get OAuth state:', error)
-    return null
+    console.error("Failed to get OAuth state:", error);
+    return null;
   }
 }
 
@@ -100,22 +105,22 @@ export async function getOAuthState(): Promise<string | null> {
  * Handle GitHub OAuth binding/login
  */
 export async function handleGitHubOAuth(clientId: string): Promise<void> {
-  const state = await getOAuthState()
-  if (!state) return
+  const state = await getOAuthState();
+  if (!state) return;
 
-  const url = buildGitHubOAuthUrl(clientId, state)
-  window.open(url, '_blank')
+  const url = buildGitHubOAuthUrl(clientId, state);
+  window.open(url, "_blank");
 }
 
 /**
  * Handle Discord OAuth binding/login
  */
 export async function handleDiscordOAuth(clientId: string): Promise<void> {
-  const state = await getOAuthState()
-  if (!state) return
+  const state = await getOAuthState();
+  if (!state) return;
 
-  const url = buildDiscordOAuthUrl(clientId, state)
-  window.open(url, '_blank')
+  const url = buildDiscordOAuthUrl(clientId, state);
+  window.open(url, "_blank");
 }
 
 /**
@@ -123,22 +128,22 @@ export async function handleDiscordOAuth(clientId: string): Promise<void> {
  */
 export async function handleOIDCOAuth(
   authUrl: string,
-  clientId: string
+  clientId: string,
 ): Promise<void> {
-  const state = await getOAuthState()
-  if (!state) return
+  const state = await getOAuthState();
+  if (!state) return;
 
-  const url = buildOIDCOAuthUrl(authUrl, clientId, state)
-  window.open(url, '_blank')
+  const url = buildOIDCOAuthUrl(authUrl, clientId, state);
+  window.open(url, "_blank");
 }
 
 /**
  * Handle LinuxDO OAuth binding/login
  */
 export async function handleLinuxDOOAuth(clientId: string): Promise<void> {
-  const state = await getOAuthState()
-  if (!state) return
+  const state = await getOAuthState("linuxdo");
+  if (!state) return;
 
-  const url = buildLinuxDOOAuthUrl(clientId, state)
-  window.open(url, '_blank')
+  const url = buildLinuxDOOAuthUrl(clientId, state);
+  window.open(url, "_blank");
 }

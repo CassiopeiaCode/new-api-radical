@@ -170,6 +170,7 @@
 - state 必须签名、防篡改、短时过期、一次性或具备等价的重放保护，并与发起会话相关联。
 - 回调完成身份验证后，只能跳转到来源白名单内的 HTTPS/受控站点；任何未授权 origin、协议、路径构造或 state 校验失败都必须安全拒绝或回落到默认站点。
 - 不得形成开放重定向，也不得把访问令牌、敏感 state 或用户信息透传给不受信任站点。
+- 多站点部署使用 `LINUXDO_OAUTH_CALLBACK_URL` 配置 LinuxDO 中登记的固定 HTTPS callback；来源站点由 `LINUXDO_OAUTH_ALLOWED_ORIGINS` 的逗号分隔 HTTPS origin 白名单控制。固定 callback 仅转交授权码与已签名 state 至来源站点，来源站点才可使用本地会话换取 token 并建立登录态。
 
 ### 配置 / API / UI
 

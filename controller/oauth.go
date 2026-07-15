@@ -23,12 +23,23 @@ func providerParams(name string) map[string]any {
 // GenerateOAuthCode generates a state code for OAuth CSRF protection
 func GenerateOAuthCode(c *gin.Context) {
 	session := sessions.Default(c)
-	state := common.GetRandomString(12)
+	state := common.GetRandomString(32)
+	isLinuxDO := c.Query("provider") == "linuxdo"
+	if c.Query("provider") == "linuxdo" {
+		var err error
+		state, err = createLinuxDOState(c, session, c.Query("origin"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+	}
 	affCode := c.Query("aff")
 	if affCode != "" {
 		session.Set("aff", affCode)
 	}
-	session.Set("oauth_state", state)
+	if !isLinuxDO {
+		session.Set("oauth_state", state)
+	}
 	err := session.Save()
 	if err != nil {
 		common.ApiError(c, err)
@@ -54,15 +65,33 @@ func HandleOAuth(c *gin.Context) {
 	}
 
 	session := sessions.Default(c)
+	state := c.Query("state")
+	if providerName == "linuxdo" && relayLinuxDOCallback(c, state) {
+		return
+	}
 
 	// 1. Validate state (CSRF protection)
-	state := c.Query("state")
-	if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
+	var linuxDOState *linuxDOOAuthState
+	if providerName == "linuxdo" {
+		var stateErr error
+		linuxDOState, stateErr = validateAndConsumeLinuxDOState(c, session, state)
+		if stateErr != nil {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthStateInvalid)})
+			return
+		}
+	} else if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
 		c.JSON(http.StatusForbidden, gin.H{
 			"success": false,
 			"message": i18n.T(c, i18n.MsgOAuthStateInvalid),
 		})
 		return
+	}
+	if providerName != "linuxdo" {
+		session.Delete("oauth_state")
+		if err := session.Save(); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 
 	// 2. Check if user is already logged in (bind flow)
@@ -131,6 +160,9 @@ func HandleOAuth(c *gin.Context) {
 	}
 
 	// 9. Setup login
+	if linuxDOState != nil {
+		c.Set("oauth_return_origin", linuxDOState.Origin)
+	}
 	setupLogin(user, c)
 }
 

@@ -155,6 +155,10 @@ func setupLogin(user *model.User, c *gin.Context) {
 		return
 	}
 	recordLoginAudit(user, c)
+	if origin := c.GetString("oauth_return_origin"); origin != "" {
+		c.Redirect(http.StatusFound, origin+"/oauth/linuxdo")
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"message": "",
 		"success": true,
