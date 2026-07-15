@@ -91,8 +91,30 @@ const OAuth2Callback = (props) => {
     const code = searchParams.get('code');
     const state = searchParams.get('state');
 
-    // 参数缺失直接返回
+    // LinuxDO 的固定服务端回调已在进入本页前完成 code/state 校验和
+    // session 写入，因此本页没有 code 时直接用当前 session 完成登录。
     if (!code) {
+      if (props.type === 'linuxdo') {
+        API.get('/api/user/self')
+          .then(({ data: resData }) => {
+            if (resData?.success && resData.data) {
+              userDispatch({ type: 'login', payload: resData.data });
+              localStorage.setItem('user', JSON.stringify(resData.data));
+              setUserData(resData.data);
+              updateAPI();
+              showSuccess(t('登录成功！'));
+              navigate('/console/token');
+              return;
+            }
+            showError(resData?.message || t('授权失败'));
+            navigate('/console/personal');
+          })
+          .catch((error) => {
+            showError(error.message || t('授权失败'));
+            navigate('/console/personal');
+          });
+        return;
+      }
       showError(t('未获取到授权码'));
       navigate('/console/personal');
       return;

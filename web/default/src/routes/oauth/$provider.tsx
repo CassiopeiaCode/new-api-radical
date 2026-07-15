@@ -78,11 +78,6 @@ function OAuthCallback() {
         }
       }
 
-      if (!search?.code) {
-        toast.error(i18next.t('Missing code'))
-        safeNavigate('/sign-in')
-        return
-      }
       const isBindingFlow =
         typeof window !== 'undefined' ? Boolean(window.opener) : mode === 'bind'
       if (isBindingFlow && mode !== 'bind') {
@@ -161,6 +156,19 @@ function OAuthCallback() {
         }
         toast.error(message)
         safeNavigate('/sign-in')
+      }
+
+      // LinuxDO can finish its fixed server-side callback before reaching this
+      // page. In that flow code/state have already been consumed; the session
+      // cookie is the only result this page needs to read.
+      if (!search?.code) {
+        if (provider === 'linuxdo' && (await finalizeLogin())) {
+          redirectAfterLogin()
+          return
+        }
+        toast.error(i18next.t('Missing code'))
+        safeNavigate('/sign-in')
+        return
       }
 
       try {
