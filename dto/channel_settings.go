@@ -34,6 +34,12 @@ const (
 )
 
 type ChannelOtherSettings struct {
+	// ChannelRequestRateLimitCount and ChannelRequestRateLimitSuccessCount are
+	// per-channel rolling one-minute limits. They live in the existing settings
+	// JSON so enabling channel protection does not require a schema migration.
+	// A value <= 0 disables the corresponding limit.
+	ChannelRequestRateLimitCount          int                   `json:"channel_request_rate_limit_count,omitempty"`
+	ChannelRequestRateLimitSuccessCount   int                   `json:"channel_request_rate_limit_success_count,omitempty"`
 	AzureResponsesVersion                 string                `json:"azure_responses_version,omitempty"`
 	VertexKeyType                         VertexKeyType         `json:"vertex_key_type,omitempty"` // "json" or "api_key"
 	OpenRouterEnterprise                  *bool                 `json:"openrouter_enterprise,omitempty"`

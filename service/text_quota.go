@@ -504,5 +504,8 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	})
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
+		if err := RecordChannelRequestSuccessForContext(ctx, relayInfo.ChannelId); err != nil {
+			logger.LogError(ctx, "record channel request success: "+err.Error())
+		}
 	})
 }

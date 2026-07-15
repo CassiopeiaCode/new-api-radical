@@ -187,6 +187,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
+	upstreamAttempted := false
+	channelRateLimited := false
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
@@ -197,7 +199,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 
-		addUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
@@ -209,6 +210,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
+		acquired, acquireErr := service.TryAcquireChannelRequestForContext(c, channel.Id)
+		if acquireErr != nil {
+			newAPIError = types.NewErrorWithStatusCode(acquireErr, types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+			break
+		}
+		if !acquired {
+			// This is a local routing skip, not an upstream failure. Continue the
+			// normal selection loop and deliberately avoid channel error handling
+			// and perf_metrics failure recording.
+			channelRateLimited = true
+			continue
+		}
+		upstreamAttempted = true
+		addUsedChannel(c, channel.Id)
 
 		switch relayFormat {
 		case types.RelayFormatOpenAIRealtime:
@@ -235,13 +250,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 	}
+	if newAPIError == nil && channelRateLimited && !upstreamAttempted {
+		newAPIError = types.NewErrorWithStatusCode(errors.New("all candidate channels are locally rate limited"), types.ErrorCodeGetChannelFailed, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry())
+	}
 
 	useChannel := c.GetStringSlice("use_channel")
 	if len(useChannel) > 1 {
 		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
-	if newAPIError != nil {
+	if newAPIError != nil && upstreamAttempted {
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
@@ -514,6 +532,8 @@ func RelayTask(c *gin.Context) {
 		RequestPath: c.Request.URL.Path,
 		Retry:       common.GetPointer(0),
 	}
+	upstreamAttempted := false
+	channelRateLimited := false
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		var channel *model.Channel
@@ -536,7 +556,6 @@ func RelayTask(c *gin.Context) {
 			}
 		}
 
-		addUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
@@ -547,9 +566,23 @@ func RelayTask(c *gin.Context) {
 			break
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
+		acquired, acquireErr := service.TryAcquireChannelRequestForContext(c, channel.Id)
+		if acquireErr != nil {
+			taskErr = service.TaskErrorWrapperLocal(acquireErr, "channel_rate_limit_unavailable", http.StatusServiceUnavailable)
+			break
+		}
+		if !acquired {
+			channelRateLimited = true
+			continue
+		}
+		upstreamAttempted = true
+		addUsedChannel(c, channel.Id)
 
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		if taskErr == nil {
+			if err := service.RecordChannelRequestSuccessForContext(c, channel.Id); err != nil {
+				logger.LogError(c, "record channel request success: "+err.Error())
+			}
 			break
 		}
 
@@ -563,6 +596,9 @@ func RelayTask(c *gin.Context) {
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
+	}
+	if taskErr == nil && channelRateLimited && !upstreamAttempted {
+		taskErr = service.TaskErrorWrapperLocal(errors.New("all candidate channels are locally rate limited"), "channel_rate_limited", http.StatusTooManyRequests)
 	}
 
 	useChannel := c.GetStringSlice("use_channel")
