@@ -78,6 +78,7 @@ const createRateLimitSchema = (t: (key: string) => string) =>
       .refine(isValidJSON, {
         message: t('Invalid JSON format or values out of allowed range'),
       }),
+    ModelRequestRateLimitExemptUserIDs: z.string(),
   })
 
 type RateLimitFormValues = z.infer<ReturnType<typeof createRateLimitSchema>>
@@ -308,6 +309,29 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                     </div>
                   </FormDescription>
                 )}
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='ModelRequestRateLimitExemptUserIDs'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Rate-limit exempt user IDs')}</FormLabel>
+                <FormControl>
+                  <Textarea
+                    rows={3}
+                    placeholder='1001, 1002'
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Comma or whitespace separated user IDs. This bypasses only user request rate limits; channel protection and all other limits still apply.'
+                  )}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}

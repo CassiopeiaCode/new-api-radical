@@ -39,6 +39,7 @@ export default function RequestRateLimit(props) {
     ModelRequestRateLimitSuccessCount: 1000,
     ModelRequestRateLimitDurationMinutes: 1,
     ModelRequestRateLimitGroup: '',
+    ModelRequestRateLimitExemptUserIDs: '',
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -225,6 +226,25 @@ export default function RequestRateLimit(props) {
                   }
                   onChange={(value) => {
                     setInputs({ ...inputs, ModelRequestRateLimitGroup: value });
+                  }}
+                />
+              </Col>
+            </Row>
+            <Row>
+              <Col xs={24} sm={16}>
+                <Form.TextArea
+                  label={t('速率限制豁免用户 ID')}
+                  placeholder='1001, 1002'
+                  field={'ModelRequestRateLimitExemptUserIDs'}
+                  autosize={{ minRows: 2, maxRows: 5 }}
+                  extraText={t(
+                    '使用逗号或空白字符分隔。仅豁免用户请求速率限制，频道保护及其他限制仍然生效。',
+                  )}
+                  onChange={(value) => {
+                    setInputs({
+                      ...inputs,
+                      ModelRequestRateLimitExemptUserIDs: value,
+                    });
                   }}
                 />
               </Col>

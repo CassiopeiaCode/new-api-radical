@@ -37,6 +37,8 @@ const SECURITY_SECTIONS = [
           ModelRequestRateLimitDurationMinutes:
             settings.ModelRequestRateLimitDurationMinutes,
           ModelRequestRateLimitGroup: settings.ModelRequestRateLimitGroup,
+          ModelRequestRateLimitExemptUserIDs:
+            settings.ModelRequestRateLimitExemptUserIDs,
         }}
       />
     ),

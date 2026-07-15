@@ -171,6 +171,11 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 			c.Next()
 			return
 		}
+		if setting.IsModelRequestRateLimitExemptUser(c.GetInt("id")) {
+			c.Header("X-RateLimit-Bypass", "ModelRequestRateLimit")
+			c.Next()
+			return
+		}
 
 		// 计算限流参数
 		duration := int64(setting.ModelRequestRateLimitDurationMinutes * 60)

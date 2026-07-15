@@ -26,7 +26,9 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
 	classicFS := common.EmbedFolder(assets.ClassicBuildFS, "web/classic/dist")
 	themeFS := common.NewThemeAwareFS(defaultFS, classicFS)
 
-	router.Use(gzip.Gzip(gzip.DefaultCompression))
+	if common.GetEnvOrDefaultBool("ENABLE_GIN_GZIP", false) {
+		router.Use(gzip.Gzip(gzip.BestSpeed))
+	}
 	router.Use(middleware.GlobalWebRateLimit())
 	router.Use(middleware.Cache())
 	router.Use(static.Serve("/", themeFS))
