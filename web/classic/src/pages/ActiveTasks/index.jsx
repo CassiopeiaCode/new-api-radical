@@ -11,6 +11,23 @@ import { Button, Card, Table } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../helpers';
 
+function normalizeDateLocale(language) {
+  const compact = String(language || '')
+    .replace(/[-_]/g, '')
+    .toLowerCase();
+  const candidate =
+    compact === 'zhcn' || compact === 'zh'
+      ? 'zh-CN'
+      : compact === 'zhtw'
+        ? 'zh-TW'
+        : String(language || '').replace('_', '-');
+  try {
+    return Intl.getCanonicalLocales(candidate)[0];
+  } catch {
+    return undefined;
+  }
+}
+
 export default function ActiveTasks() {
   const { i18n, t } = useTranslation();
   const [stats, setStats] = useState(null);
@@ -45,11 +62,13 @@ export default function ActiveTasks() {
     {
       title: t('Time'),
       render: (_, row) =>
-        new Date(row.created_at * 1000).toLocaleString(i18n.language),
+        new Date(row.created_at * 1000).toLocaleString(
+          normalizeDateLocale(i18n.language),
+        ),
     },
   ];
   return (
-    <div className='mt-[60px] px-2'>
+    <div className='mt-[60px] max-h-[calc(100vh-60px)] overflow-auto px-2 pb-4'>
       <Card
         title={t('Active tasks')}
         headerExtraContent={
@@ -70,6 +89,7 @@ export default function ActiveTasks() {
           dataSource={stats?.rank || []}
           pagination={false}
           rowKey='user_id'
+          scroll={{ x: 'max-content' }}
         />
         <h5 style={{ marginTop: 24 }}>{t('Active task history')}</h5>
         <Table
@@ -77,6 +97,7 @@ export default function ActiveTasks() {
           dataSource={history}
           pagination={false}
           rowKey='id'
+          scroll={{ x: 'max-content' }}
         />
       </Card>
     </div>

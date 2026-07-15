@@ -49,9 +49,9 @@ export function RecentCalls() {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='grid gap-4 lg:grid-cols-2'>
-          <div className='rounded-md border'>
-            <table className='w-full text-sm'>
+        <div className='grid h-full min-h-0 gap-4 overflow-auto pr-1 lg:grid-cols-2'>
+          <div className='min-w-0 overflow-auto rounded-md border'>
+            <table className='min-w-[640px] text-sm'>
               <thead>
                 <tr className='text-left'>
                   <th>ID</th>
@@ -80,7 +80,7 @@ export function RecentCalls() {
               </tbody>
             </table>
           </div>
-          <pre className='bg-muted max-h-[70vh] overflow-auto rounded-md p-3 text-xs'>
+          <pre className='bg-muted min-h-48 min-w-0 max-w-full overflow-auto rounded-md p-3 text-xs lg:max-h-full'>
             {selected
               ? JSON.stringify(selected, null, 2)
               : t(

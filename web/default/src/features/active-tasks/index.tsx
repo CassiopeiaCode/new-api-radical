@@ -30,6 +30,21 @@ type History = {
   global_active_slots: number;
 };
 
+function normalizeDateLocale(language: string): string | undefined {
+  const compact = language.replace(/[-_]/g, '').toLowerCase();
+  const candidate =
+    compact === 'zhcn' || compact === 'zh'
+      ? 'zh-CN'
+      : compact === 'zhtw'
+        ? 'zh-TW'
+        : language.replace('_', '-');
+  try {
+    return Intl.getCanonicalLocales(candidate)[0];
+  } catch {
+    return undefined;
+  }
+}
+
 export function ActiveTasks() {
   const { i18n, t } = useTranslation();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -58,7 +73,7 @@ export function ActiveTasks() {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className="space-y-6">
+        <div className="h-full min-h-0 space-y-6 overflow-auto pr-1">
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric
               label={t("Active slots")}
@@ -137,8 +152,8 @@ function DataTable({
   };
 }) {
   return (
-    <div className="overflow-x-auto rounded-md border">
-      <table className="w-full text-sm">
+    <div className="max-w-full overflow-auto rounded-md border">
+      <table className="min-w-[720px] w-full text-sm">
         <thead className="bg-muted/40 text-left">
           <tr>
             {history && <th className="p-2">{labels.time}</th>}
@@ -157,7 +172,7 @@ function DataTable({
               {history && (
                 <td className="p-2">
                   {new Date(Number(row.created_at) * 1000).toLocaleString(
-                    locale
+                    normalizeDateLocale(locale)
                   )}
                 </td>
               )}

@@ -81,7 +81,7 @@ export function Fingerprints() {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='space-y-6'>
+        <div className='h-full min-h-0 space-y-6 overflow-auto pr-1'>
           <section>
             <h2 className='mb-2 text-lg font-semibold'>
               {t('Shared fingerprints')}
@@ -128,8 +128,8 @@ function FingerprintTable({
   onInspect?: (row: Fingerprint | Duplicate) => void
 }) {
   return (
-    <div className='overflow-x-auto rounded-md border'>
-      <table className='w-full text-sm'>
+    <div className='max-w-full overflow-auto rounded-md border'>
+      <table className='min-w-[720px] w-full text-sm'>
         <thead className='bg-muted/40 text-left'>
           <tr>
             <th className='p-2'>Visitor ID</th>

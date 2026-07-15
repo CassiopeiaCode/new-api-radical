@@ -84,7 +84,7 @@ export default function Fingerprint() {
     },
   ];
   return (
-    <div className='mt-[60px] px-2'>
+    <div className='mt-[60px] max-h-[calc(100vh-60px)] overflow-auto px-2 pb-4'>
       <Card
         title='Fingerprint associations'
         headerExtraContent={
@@ -107,6 +107,7 @@ export default function Fingerprint() {
               dataSource={duplicates}
               pagination={false}
               rowKey={(row) => `${row.visitor_id}-${row.ip}`}
+              scroll={{ x: 'max-content' }}
             />
           </TabPane>
           <TabPane tab='Recent records' itemKey='records'>
@@ -115,6 +116,7 @@ export default function Fingerprint() {
               dataSource={records}
               pagination={false}
               rowKey={(row) => row.id}
+              scroll={{ x: 'max-content' }}
             />
           </TabPane>
         </Tabs>
@@ -128,6 +130,7 @@ export default function Fingerprint() {
               dataSource={related}
               pagination={false}
               rowKey={(row) => row.id}
+              scroll={{ x: 'max-content' }}
             />
           </>
         )}
