@@ -121,10 +121,10 @@ type UserWithFingerprint struct {
 }
 
 type DuplicateFingerprint struct {
-	VisitorId string    `json:"visitor_id"`
-	IP        string    `json:"ip"`
-	UserCount int64     `json:"user_count"`
-	LastSeen  time.Time `json:"last_seen"`
+	VisitorId string `json:"visitor_id"`
+	IP        string `json:"ip"`
+	UserCount int64  `json:"user_count"`
+	LastSeen  int64  `json:"last_seen"`
 }
 
 func fingerprintUserSelect() string {
@@ -184,6 +184,12 @@ func GetDuplicateFingerprints(pageInfo *common.PageInfo) ([]DuplicateFingerprint
 		return nil, 0, err
 	}
 	var results []DuplicateFingerprint
-	err := DB.Raw("SELECT visitor_id, ip, COUNT(DISTINCT user_id) AS user_count, MAX(updated_at) AS last_seen"+base+" ORDER BY user_count DESC, last_seen DESC LIMIT ? OFFSET ?", pageInfo.GetPageSize(), pageInfo.GetStartIdx()).Scan(&results).Error
+	lastSeen := "UNIX_TIMESTAMP(MAX(updated_at))"
+	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+		lastSeen = "CAST(strftime('%s', MAX(updated_at)) AS INTEGER)"
+	} else if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+		lastSeen = "CAST(EXTRACT(EPOCH FROM MAX(updated_at)) AS BIGINT)"
+	}
+	err := DB.Raw("SELECT visitor_id, ip, COUNT(DISTINCT user_id) AS user_count, "+lastSeen+" AS last_seen"+base+" ORDER BY user_count DESC, last_seen DESC LIMIT ? OFFSET ?", pageInfo.GetPageSize(), pageInfo.GetStartIdx()).Scan(&results).Error
 	return results, total, err
 }

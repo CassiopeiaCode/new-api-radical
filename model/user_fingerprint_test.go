@@ -25,7 +25,7 @@ func setupFingerprintTestDB(t *testing.T) {
 
 func createFingerprintTestUser(t *testing.T, id int) {
 	t.Helper()
-	require.NoError(t, DB.Create(&User{Id: id, Username: fmt.Sprintf("fp-user-%d", id), Password: "password1", DisplayName: "Fingerprint user"}).Error)
+	require.NoError(t, DB.Create(&User{Id: id, Username: fmt.Sprintf("fp-user-%d", id), Password: "password1", DisplayName: "Fingerprint user", AffCode: fmt.Sprintf("fp%06d", id)}).Error)
 }
 
 func TestRecordFingerprintUpsertsPairAndTrimsOldest(t *testing.T) {
@@ -67,6 +67,7 @@ func TestFingerprintAssociationQueriesUseVisitorAndIP(t *testing.T) {
 	require.Len(t, duplicates, 1)
 	require.Equal(t, "2001:db8::1", duplicates[0].IP)
 	require.Equal(t, int64(2), duplicates[0].UserCount)
+	require.Positive(t, duplicates[0].LastSeen)
 
 	users, total, err := FindUsersByFingerprint("shared_visitor", "2001:db8::1", page)
 	require.NoError(t, err)

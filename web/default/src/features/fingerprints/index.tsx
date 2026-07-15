@@ -25,7 +25,7 @@ type Duplicate = {
   visitor_id: string
   ip: string
   user_count: number
-  last_seen: string
+  last_seen: number
 }
 
 export function Fingerprints() {
