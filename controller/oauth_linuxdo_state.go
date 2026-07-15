@@ -52,9 +52,8 @@ func signLinuxDOState(payload string) string {
 }
 
 func createLinuxDOState(c *gin.Context, session sessions.Session, origin string) (string, error) {
-	currentOrigin := requestOrigin(c)
 	normalized, ok := normalizedHTTPSOrigin(origin)
-	if !ok || !linuxDOStateOriginMatchesRequest(normalized, currentOrigin) {
+	if !ok {
 		return "", errors.New("LinuxDO OAuth origin is not allowed")
 	}
 	nonce := common.GetRandomString(32)
@@ -88,13 +87,18 @@ func parseLinuxDOState(state string) (*linuxDOOAuthState, error) {
 	return claims, nil
 }
 
-// relayLinuxDOCallback makes one bounded relay hop when LinuxDO calls the
-// operator-selected callback host but the signed state was created on another
-// site. Once the request reaches the source host, this returns false so that
-// the normal session-bound validation consumes the state locally.
-func relayLinuxDOCallback(c *gin.Context, state string) bool {
+// relayLinuxDOCallback uses the site-local session instead of proxy-provided
+// Host headers to decide whether this callback reached its source site. When
+// it did not, it performs one bounded redirect to the signed source origin.
+func relayLinuxDOCallback(c *gin.Context, session sessions.Session, state string) bool {
 	claims, err := parseLinuxDOState(state)
-	if err != nil || linuxDOStateOriginMatchesRequest(claims.Origin, requestOrigin(c)) {
+	if err != nil {
+		return false
+	}
+	if session.Get("oauth_state") == claims.Nonce && session.Get("linuxdo_oauth_origin") == claims.Origin {
+		return false
+	}
+	if c.Query("linuxdo_relay") == "1" {
 		return false
 	}
 	query := url.Values{}
@@ -103,27 +107,9 @@ func relayLinuxDOCallback(c *gin.Context, state string) bool {
 			query.Set(key, value)
 		}
 	}
+	query.Set("linuxdo_relay", "1")
 	c.Redirect(http.StatusFound, claims.Origin+"/api/oauth/linuxdo?"+query.Encode())
 	return true
-}
-
-// linuxDOStateOriginMatchesRequest accepts an HTTPS origin that arrived as
-// HTTP through a TLS-terminating proxy only when its host is unchanged. The
-// signed, expiring state and source-host session nonce remain mandatory.
-func linuxDOStateOriginMatchesRequest(origin string, currentOrigin string) bool {
-	if origin == currentOrigin {
-		return true
-	}
-
-	normalizedOrigin, ok := normalizedHTTPSOrigin(origin)
-	if !ok {
-		return false
-	}
-	current, err := url.Parse(currentOrigin)
-	if err != nil || current.Scheme != "http" || current.Host == "" || current.User != nil || current.RawQuery != "" || current.Fragment != "" || (current.Path != "" && current.Path != "/") {
-		return false
-	}
-	return normalizedOrigin == "https://"+strings.ToLower(current.Host)
 }
 
 func validateAndConsumeLinuxDOState(c *gin.Context, session sessions.Session, state string) (*linuxDOOAuthState, error) {

@@ -66,7 +66,7 @@ func HandleOAuth(c *gin.Context) {
 
 	session := sessions.Default(c)
 	state := c.Query("state")
-	if providerName == "linuxdo" && relayLinuxDOCallback(c, state) {
+	if providerName == "linuxdo" && relayLinuxDOCallback(c, session, state) {
 		return
 	}
 
