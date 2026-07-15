@@ -81,7 +81,7 @@ func ClaudeMessagesRequestToOpenAIChat(claudeRequest dto.ClaudeRequest, info *re
 	}
 
 	tools, _ := common.Any2Type[[]dto.Tool](claudeRequest.Tools)
-	openAITools := make([]dto.ToolCallRequest, 0)
+	openAITools := make([]dto.ToolCallRequest, 0, len(tools))
 	for _, claudeTool := range tools {
 		openAITool := dto.ToolCallRequest{
 			Type: "function",
@@ -95,7 +95,9 @@ func ClaudeMessagesRequestToOpenAIChat(claudeRequest dto.ClaudeRequest, info *re
 	}
 	openAIRequest.Tools = openAITools
 
-	openAIMessages := make([]dto.Message, 0)
+	// At least one OpenAI message is generated for every Claude message; a
+	// system message and tool-result messages can add a few more entries.
+	openAIMessages := make([]dto.Message, 0, len(claudeRequest.Messages)+1)
 	if claudeRequest.System != nil {
 		if claudeRequest.IsStringSystem() && claudeRequest.GetStringSystem() != "" {
 			openAIMessage := dto.Message{
@@ -122,13 +124,13 @@ func ClaudeMessagesRequestToOpenAIChat(claudeRequest dto.ClaudeRequest, info *re
 					}
 					openAIMessage.SetMediaContent(systemMediaMessages)
 				} else {
-					systemStr := ""
+					var systemText strings.Builder
 					for _, system := range systems {
 						if system.Text != nil {
-							systemStr += *system.Text
+							systemText.WriteString(*system.Text)
 						}
 					}
-					openAIMessage.SetStringContent(systemStr)
+					openAIMessage.SetStringContent(systemText.String())
 				}
 				openAIMessages = append(openAIMessages, openAIMessage)
 			}
