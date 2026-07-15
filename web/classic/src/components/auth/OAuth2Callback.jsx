@@ -56,6 +56,15 @@ const OAuth2Callback = (props) => {
         return;
       }
 
+      if (
+        props.type === 'linuxdo' &&
+        data?.action === 'redirect' &&
+        typeof data.url === 'string'
+      ) {
+        window.location.replace(data.url);
+        return;
+      }
+
       if (data?.action === 'bind') {
         showSuccess(t('绑定成功！'));
         navigate('/console/personal');
@@ -91,38 +100,8 @@ const OAuth2Callback = (props) => {
     const code = searchParams.get('code');
     const state = searchParams.get('state');
 
-    // LinuxDO 的固定服务端回调已在进入本页前完成 code/state 校验和
-    // session 写入，因此本页没有 code 时直接用当前 session 完成登录。
+    // 参数缺失直接返回
     if (!code) {
-      if (props.type === 'linuxdo') {
-        const userId = searchParams.get('uid');
-        if (!userId || !/^\d+$/.test(userId)) {
-          showError(t('授权失败'));
-          navigate('/console/personal');
-          return;
-        }
-        API.get('/api/user/self', {
-          headers: { 'New-API-User': userId },
-        })
-          .then(({ data: resData }) => {
-            if (resData?.success && resData.data) {
-              userDispatch({ type: 'login', payload: resData.data });
-              localStorage.setItem('user', JSON.stringify(resData.data));
-              setUserData(resData.data);
-              updateAPI();
-              showSuccess(t('登录成功！'));
-              navigate('/console/token');
-              return;
-            }
-            showError(resData?.message || t('授权失败'));
-            navigate('/console/personal');
-          })
-          .catch((error) => {
-            showError(error.message || t('授权失败'));
-            navigate('/console/personal');
-          });
-        return;
-      }
       showError(t('未获取到授权码'));
       navigate('/console/personal');
       return;

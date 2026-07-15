@@ -87,9 +87,9 @@ func parseLinuxDOState(state string) (*linuxDOOAuthState, error) {
 	return claims, nil
 }
 
-// relayLinuxDOCallback uses the site-local session instead of proxy-provided
-// Host headers to decide whether this callback reached its source site. When
-// it did not, it performs one bounded redirect to the signed source origin.
+// relayLinuxDOCallback lets the existing frontend callback page perform the
+// cross-site navigation. This endpoint only verifies the signed state and
+// returns the source callback URL; it does not consume state or exchange code.
 func relayLinuxDOCallback(c *gin.Context, session sessions.Session, state string) bool {
 	claims, err := parseLinuxDOState(state)
 	if err != nil {
@@ -98,17 +98,20 @@ func relayLinuxDOCallback(c *gin.Context, session sessions.Session, state string
 	if session.Get("oauth_state") == claims.Nonce && session.Get("linuxdo_oauth_origin") == claims.Origin {
 		return false
 	}
-	if c.Query("linuxdo_relay") == "1" {
-		return false
-	}
 	query := url.Values{}
 	for _, key := range []string{"code", "state", "error", "error_description"} {
 		if value := c.Query(key); value != "" {
 			query.Set(key, value)
 		}
 	}
-	query.Set("linuxdo_relay", "1")
-	c.Redirect(http.StatusFound, claims.Origin+"/api/oauth/linuxdo?"+query.Encode())
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"action": "redirect",
+			"url":    claims.Origin + "/oauth/linuxdo?" + query.Encode(),
+		},
+	})
 	return true
 }
 

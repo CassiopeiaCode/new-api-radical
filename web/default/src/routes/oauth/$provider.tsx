@@ -45,7 +45,6 @@ function OAuthCallback() {
     code?: string
     state?: string
     redirect?: string
-    uid?: string
   }
   const [mode, setMode] = useState<'login' | 'bind'>(() => {
     if (typeof window === 'undefined') return 'login'
@@ -113,16 +112,9 @@ function OAuthCallback() {
         }, 200)
       }
 
-      const finalizeLogin = async (userId?: string): Promise<boolean> => {
+      const finalizeLogin = async (): Promise<boolean> => {
         try {
-          const selfResponse = (userId
-            ? (
-                await api.get('/api/user/self', {
-                  headers: { 'New-Api-User': userId },
-                  skipErrorHandler: true,
-                })
-              ).data
-            : await getSelf()) as {
+          const selfResponse = (await getSelf()) as {
             success?: boolean
             data?: AuthUser | null
           }
@@ -166,20 +158,7 @@ function OAuthCallback() {
         safeNavigate('/sign-in')
       }
 
-      // LinuxDO can finish its fixed server-side callback before reaching this
-      // page. In that flow code/state have already been consumed; the session
-      // cookie is the only result this page needs to read.
       if (!search?.code) {
-        const userId = search?.uid
-        if (
-          provider === 'linuxdo' &&
-          userId &&
-          /^\d+$/.test(userId) &&
-          (await finalizeLogin(userId))
-        ) {
-          redirectAfterLogin()
-          return
-        }
         toast.error(i18next.t('Missing code'))
         safeNavigate('/sign-in')
         return
@@ -193,6 +172,14 @@ function OAuthCallback() {
         const res = await api.get(`/api/oauth/${provider}`, config)
         if (res?.data?.success) {
           const { message } = res.data
+          if (
+            provider === 'linuxdo' &&
+            res.data?.data?.action === 'redirect' &&
+            typeof res.data.data.url === 'string'
+          ) {
+            window.location.replace(res.data.data.url)
+            return
+          }
           const loginUser = (res.data?.data ?? null) as AuthUser | null
           // Check if this is a bind operation
           if (message === 'bind') {

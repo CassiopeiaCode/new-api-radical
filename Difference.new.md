@@ -170,9 +170,9 @@
 - state 必须签名、防篡改、短时过期、一次性或具备等价的重放保护，并与发起会话相关联。
 - 回调完成身份验证后，只能跳转到来源白名单内的 HTTPS/受控站点；任何未授权 origin、协议、路径构造或 state 校验失败都必须安全拒绝或回落到默认站点。
 - 不得形成开放重定向，也不得把访问令牌、敏感 state 或用户信息透传给不受信任站点。
-- LinuxDO 控制台的唯一 callback 由运营方自行设置，例如 `https://elysia.h-e.top/api/oauth/linuxdo`；应用不再维护 `LINUXDO_OAUTH_CALLBACK_URL` 或 `LINUXDO_OAUTH_ALLOWED_ORIGINS` 作为第二配置源。授权请求和 token exchange 均不发送或推导 `redirect_uri`，避免与 LinuxDO 实际 callback 漂移。
+- LinuxDO 控制台的唯一 callback 由运营方自行设置到固定站点的现有前端回调页，例如 `https://elysia.h-e.top/oauth/linuxdo`；应用不再维护 `LINUXDO_OAUTH_CALLBACK_URL` 或 `LINUXDO_OAUTH_ALLOWED_ORIGINS` 作为第二配置源。授权请求和 token exchange 均不发送或推导 `redirect_uri`，避免与 LinuxDO 实际 callback 漂移。
 - 登录发起时 state 绑定来源 HTTPS origin、随机 nonce 与短时过期时间并签名，同时将 nonce 和 origin 写入发起站点自己的浏览器会话；不依赖入口代理提供的 Host/协议头来判定最终登录站点。
-- LinuxDO 回调到运营方选定的任一站点 `/api/oauth/linuxdo` 后，先用该站点本地 Cookie 检查 nonce 与 origin 是否匹配 state：匹配则在本地兑换 token 和建立登录态；不匹配则仅以 302 转交 `code`、`state` 及 OAuth 错误参数至来源站点的同一路径，并带一次性 `linuxdo_relay=1` 标记。带标记的请求若仍无匹配会话则直接拒绝，保证最多一跳、不形成循环。
+- LinuxDO 回调到运营方选定站点的 `/oauth/linuxdo` 前端页后，前端按上游原生流程调用 `/api/oauth/linuxdo`。API 验签 state 后若发现当前 Cookie 不是发起会话，只返回来源站点 `/oauth/linuxdo` 的跳转信息且不消费 state、不兑换 token；前端携带原始 `code`、`state` 和 OAuth 错误参数跳到来源站点。来源站点前端再次调用同一 API，只有与 nonce、origin 匹配的发起会话才能消费 state、兑换 token并获得原生 user JSON。
 - 跨站和同站分支都不得将 access token 或用户资料置入 URL。
 
 ### 配置 / API / UI
@@ -186,7 +186,7 @@
 
 ### 迁移约束与验收
 
-- 验证运营方选择 `elysia` 为 callback 时的 `elysia` 本站登录与 `elysiver → elysia → elysiver` 完整闭环、过期 state、篡改 state、跨会话重放、入口 Host 改写、一次中转后的会话缺失拒绝以及单次中转终止。
+- 验证运营方选择 `elysia` 的 `/oauth/linuxdo` 为 callback 时的 `elysia` 本站登录与 `elysiver → elysia 前端 → elysiver` 完整闭环、过期 state、篡改 state、跨会话重放、入口 Host 改写，以及非发起会话只能获得前端跳转信息而不能消费 code/state。
 
 ## 7. FingerprintJS 用户关联与管理员检索
 

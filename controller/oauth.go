@@ -71,10 +71,8 @@ func HandleOAuth(c *gin.Context) {
 	}
 
 	// 1. Validate state (CSRF protection)
-	var linuxDOState *linuxDOOAuthState
 	if providerName == "linuxdo" {
-		var stateErr error
-		linuxDOState, stateErr = validateAndConsumeLinuxDOState(c, session, state)
+		_, stateErr := validateAndConsumeLinuxDOState(c, session, state)
 		if stateErr != nil {
 			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthStateInvalid)})
 			return
@@ -160,9 +158,6 @@ func HandleOAuth(c *gin.Context) {
 	}
 
 	// 9. Setup login
-	if linuxDOState != nil {
-		c.Set("oauth_return_origin", linuxDOState.Origin)
-	}
 	setupLogin(user, c)
 }
 
