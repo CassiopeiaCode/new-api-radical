@@ -122,6 +122,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
 	}
+	if service.IsLeakProtectionBalancedEnabled(relayInfo.UserSetting) {
+		if blocked, reason := service.CheckRequestLeakProtection(request); blocked {
+			logger.LogWarn(c, "leak protection blocked request: "+reason)
+			if constant.ErrorLogEnabled {
+				// The reason intentionally contains only a rule identifier or a
+				// generic scanner-state message, never the detected secret.
+				model.RecordErrorLog(c, relayInfo.UserId, 0, relayInfo.OriginModelName, "", "leak protection blocked request: "+reason, relayInfo.TokenId, 0, false, relayInfo.UserGroup, nil)
+			}
+			newAPIError = types.NewError(service.NewLeakProtectionBlockedError(), types.ErrorCodeSensitiveWordsDetected, types.ErrOptionWithSkipRetry())
+			return
+		}
+	}
 	if storage, storageErr := common.GetBodyStorage(c); storageErr == nil {
 		if rawBody, readErr := storage.Bytes(); readErr == nil {
 			service.RecentCallsCache().BeginFromContext(c, relayInfo, rawBody)

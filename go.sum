@@ -3175,3 +3175,5 @@ sigs.k8s.io/structured-merge-diff/v4 v4.2.3/go.mod h1:qjx8mGObPmV2aSZepjQjbmb2ih
 sigs.k8s.io/yaml v1.1.0/go.mod h1:UJmg0vDUVViEyp3mgSv9WPwZCDxu4rQW1olrI1uml+o=
 sigs.k8s.io/yaml v1.2.0/go.mod h1:yfXDCHCao9+ENCvLSE62v9VSji2MKu5jeNfTrofGhJc=
 sigs.k8s.io/yaml v1.3.0/go.mod h1:GeOyir5tyXNByN85N/dRIT9es5UQNerPYEKK56eTBm8=
+github.com/zricethezav/gitleaks/v8 v8.30.0 h1:5heLlxRQkHfXgTJgdQsJhi/evX1oj6i+xBanDu2XUM8=
+github.com/zricethezav/gitleaks/v8 v8.30.0/go.mod h1:M5JQW5L+vZmkAqs9EX29hFQnn7uFz9sOQCPNewaZD9E=

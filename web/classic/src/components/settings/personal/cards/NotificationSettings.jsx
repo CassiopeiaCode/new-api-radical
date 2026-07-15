@@ -801,6 +801,16 @@ const NotificationSettings = ({
                     '开启后，仅"消费"和"错误"日志将记录您的客户端IP地址',
                   )}
                 />
+                <Form.Switch
+                  field='disableLeakProtectionBalanced'
+                  label={t('出站凭据泄漏防护')}
+                  checkedText={t('关')}
+                  uncheckedText={t('开')}
+                  onChange={(value) =>
+                    handleFormChange('disableLeakProtectionBalanced', value)
+                  }
+                  extraText={t('关闭后不会在请求发送到上游前拦截疑似 API 密钥')}
+                />
               </div>
             </TabPane>
 

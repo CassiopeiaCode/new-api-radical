@@ -24,9 +24,9 @@ For commercial licensing, please contact support@quantumnous.com
  * Generic API response
  */
 export interface ApiResponse<T = unknown> {
-  success: boolean
-  message?: string
-  data?: T
+  success: boolean;
+  message?: string;
+  data?: T;
 }
 
 /**
@@ -34,155 +34,157 @@ export interface ApiResponse<T = unknown> {
  */
 export interface UserProfile {
   /** User ID */
-  id: number
+  id: number;
   /** Username */
-  username: string
+  username: string;
   /** Display name */
-  display_name: string
+  display_name: string;
   /** User role (1=普通用户, 10=管理员, 100=超级管理员) */
-  role: number
+  role: number;
   /** Email address */
-  email?: string
+  email?: string;
   /** User group */
-  group: string
+  group: string;
   /** Current quota balance */
-  quota: number
+  quota: number;
   /** Total used quota */
-  used_quota: number
+  used_quota: number;
   /** Total request count */
-  request_count: number
+  request_count: number;
   /** Account status (1=启用, 2=禁用, 3=待审核, 4=已删除) */
-  status: number
+  status: number;
   /** Access token (system token) */
-  access_token?: string
+  access_token?: string;
   /** Affiliate code */
-  aff_code?: string
+  aff_code?: string;
   /** Number of successful affiliate invites */
-  aff_count: number
+  aff_count: number;
   /** Affiliate quota (pending rewards) */
-  aff_quota: number
+  aff_quota: number;
   /** Total affiliate quota earned (historical) */
-  aff_history_quota: number
+  aff_history_quota: number;
   /** Invite user ID */
-  invite_user_id?: number
+  invite_user_id?: number;
   /** Account creation timestamp */
-  created_time: number
+  created_time: number;
   /** User settings (JSON string) */
-  setting?: string
+  setting?: string;
   /** WeChat ID (OAuth) */
-  wechat_id?: string
+  wechat_id?: string;
   /** GitHub ID (OAuth) */
-  github_id?: string
+  github_id?: string;
   /** Discord ID (OAuth) */
-  discord_id?: string
+  discord_id?: string;
   /** OIDC ID (OAuth) */
-  oidc_id?: string
+  oidc_id?: string;
   /** Telegram ID (OAuth) */
-  telegram_id?: string
+  telegram_id?: string;
   /** LinuxDO ID (OAuth) */
-  linux_do_id?: string
+  linux_do_id?: string;
 }
 
 /**
  * Notification type
  */
-export type NotifyType = 'email' | 'webhook' | 'bark' | 'gotify'
+export type NotifyType = "email" | "webhook" | "bark" | "gotify";
 
 /**
  * Parsed user settings
  */
 export interface UserSettings {
   /** Notification type */
-  notify_type?: NotifyType
+  notify_type?: NotifyType;
   /** Quota warning threshold */
-  quota_warning_threshold?: number
+  quota_warning_threshold?: number;
   /** Webhook URL */
-  webhook_url?: string
+  webhook_url?: string;
   /** Webhook secret */
-  webhook_secret?: string
+  webhook_secret?: string;
   /** Notification email */
-  notification_email?: string
+  notification_email?: string;
   /** Bark URL */
-  bark_url?: string
+  bark_url?: string;
   /** Gotify server URL */
-  gotify_url?: string
+  gotify_url?: string;
   /** Gotify application token */
-  gotify_token?: string
+  gotify_token?: string;
   /** Gotify message priority (0-10) */
-  gotify_priority?: number
+  gotify_priority?: number;
   /** Accept unset model ratio model */
-  accept_unset_model_ratio_model?: boolean
+  accept_unset_model_ratio_model?: boolean;
   /** Record IP log */
-  record_ip_log?: boolean
+  record_ip_log?: boolean;
+  /** Disable user-level outbound credential leak protection */
+  disable_leak_protection_balanced?: boolean;
   /** Receive upstream model update notifications (admin only) */
-  upstream_model_update_notify_enabled?: boolean
+  upstream_model_update_notify_enabled?: boolean;
   /** Preferred interface/API response language */
-  language?: string
+  language?: string;
 }
 
 /**
  * User update request
  */
 export interface UpdateUserRequest {
-  display_name?: string
-  password?: string
-  original_password?: string
+  display_name?: string;
+  password?: string;
+  original_password?: string;
 }
 
 /**
  * User settings update request
  */
 export interface UpdateUserSettingsRequest {
-  notify_type?: string
-  quota_warning_threshold?: number
-  webhook_url?: string
-  webhook_secret?: string
-  notification_email?: string
-  bark_url?: string
-  gotify_url?: string
-  gotify_token?: string
-  gotify_priority?: number
-  accept_unset_model_ratio_model?: boolean
-  record_ip_log?: boolean
-  upstream_model_update_notify_enabled?: boolean
+  notify_type?: string;
+  quota_warning_threshold?: number;
+  webhook_url?: string;
+  webhook_secret?: string;
+  notification_email?: string;
+  bark_url?: string;
+  gotify_url?: string;
+  gotify_token?: string;
+  gotify_priority?: number;
+  accept_unset_model_ratio_model?: boolean;
+  record_ip_log?: boolean;
+  upstream_model_update_notify_enabled?: boolean;
 }
 
 /**
  * Account deletion request
  */
 export interface DeleteAccountRequest {
-  password?: string
+  password?: string;
 }
 
 /**
  * Account binding item
  */
 export interface BindingItem {
-  id: string
-  label: string
-  icon: React.ElementType
-  value?: string
-  isBound: boolean
-  isEnabled: boolean
-  onBind: () => void
+  id: string;
+  label: string;
+  icon: React.ElementType;
+  value?: string;
+  isBound: boolean;
+  isEnabled: boolean;
+  onBind: () => void;
 }
 
 /**
  * Two-Factor Authentication Status
  */
 export interface TwoFAStatus {
-  enabled: boolean
-  locked: boolean
-  backup_codes_remaining: number
+  enabled: boolean;
+  locked: boolean;
+  backup_codes_remaining: number;
 }
 
 /**
  * Two-Factor Authentication Setup Data
  */
 export interface TwoFASetupData {
-  secret: string
-  qr_code_data: string
-  backup_codes: string[]
+  secret: string;
+  qr_code_data: string;
+  backup_codes: string[];
 }
 
 // ============================================================================
@@ -194,9 +196,9 @@ export interface TwoFASetupData {
  */
 export interface CheckinRecord {
   /** Check-in date (YYYY-MM-DD) */
-  checkin_date: string
+  checkin_date: string;
   /** Quota awarded for this check-in */
-  quota_awarded: number
+  quota_awarded: number;
 }
 
 /**
@@ -204,15 +206,15 @@ export interface CheckinRecord {
  */
 export interface CheckinStats {
   /** Whether user has checked in today */
-  checked_in_today: boolean
+  checked_in_today: boolean;
   /** Total number of check-ins */
-  total_checkins: number
+  total_checkins: number;
   /** Total quota earned from check-ins */
-  total_quota: number
+  total_quota: number;
   /** Current month check-in count */
-  checkin_count: number
+  checkin_count: number;
   /** Check-in records for the queried month */
-  records: CheckinRecord[]
+  records: CheckinRecord[];
 }
 
 /**
@@ -220,9 +222,9 @@ export interface CheckinStats {
  */
 export interface CheckinStatusResponse {
   /** Whether check-in feature is enabled */
-  enabled: boolean
+  enabled: boolean;
   /** Check-in statistics */
-  stats: CheckinStats
+  stats: CheckinStats;
 }
 
 /**
@@ -230,5 +232,5 @@ export interface CheckinStatusResponse {
  */
 export interface CheckinResponse {
   /** Quota awarded for this check-in */
-  quota_awarded: number
+  quota_awarded: number;
 }
