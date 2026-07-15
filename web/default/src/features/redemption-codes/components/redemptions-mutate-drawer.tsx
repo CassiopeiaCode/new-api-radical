@@ -72,6 +72,16 @@ type RedemptionsMutateDrawerProps = {
   currentRow?: Redemption
 }
 
+function downloadRedemptionKeys(keys: string[], name: string) {
+  const blob = new Blob([`${keys.join('\n')}\n`], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `${name || 'redemption-codes'}.txt`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
 export function RedemptionsMutateDrawer({
   open,
   onOpenChange,
@@ -129,6 +139,9 @@ export function RedemptionsMutateDrawer({
                 })
               : t(SUCCESS_MESSAGES.REDEMPTION_CREATED)
           )
+          if (result.data?.length) {
+            downloadRedemptionKeys(result.data, basePayload.name)
+          }
           onOpenChange(false)
           triggerRefresh()
         }
@@ -300,31 +313,95 @@ export function RedemptionsMutateDrawer({
               />
 
               {!isUpdate && (
-                <FormField
-                  control={form.control}
-                  name='count'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Quantity')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type='number'
-                          min='1'
-                          max='100'
-                          placeholder={t('Number of codes to create')}
-                          onChange={(e) =>
-                            field.onChange(parseInt(e.target.value, 10) || 1)
-                          }
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t('Create multiple redemption codes at once (1-100)')}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <>
+                  <FormField
+                    control={form.control}
+                    name='count'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Quantity')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type='number'
+                            min='1'
+                            max='100000'
+                            placeholder={t('Number of codes to create')}
+                            onChange={(e) =>
+                              field.onChange(parseInt(e.target.value, 10) || 1)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Create up to 100,000 codes at once. Random mode uses this as random_count.')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className='grid gap-4 sm:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='random_min_dollars'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Random minimum quota')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min='0'
+                              step={tokensOnly ? 1 : 0.01}
+                              value={field.value ?? ''}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === '' ? undefined : parseFloat(e.target.value)
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>{t('Set both random limits to enable per-code random quota.')}</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='random_max_dollars'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Random maximum quota')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min='0'
+                              step={tokensOnly ? 1 : 0.01}
+                              value={field.value ?? ''}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === '' ? undefined : parseFloat(e.target.value)
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name='random_prefix'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Random code prefix')}</FormLabel>
+                        <FormControl><Input {...field} maxLength={12} placeholder='SUMMER-' /></FormControl>
+                        <FormDescription>{t('Optional prefix, maximum 12 characters. The generated result will download as TXT after creation.')}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
               )}
             </SideDrawerSection>
           </form>

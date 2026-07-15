@@ -43,8 +43,11 @@ export function getRedemptionFormSchema(t: TFunction) {
     count: z
       .number()
       .min(REDEMPTION_VALIDATION.COUNT_MIN, msg.COUNT_INVALID)
-      .max(REDEMPTION_VALIDATION.COUNT_MAX, msg.COUNT_INVALID)
+      .max(100000, msg.COUNT_INVALID)
       .optional(),
+    random_min_dollars: z.number().optional(),
+    random_max_dollars: z.number().optional(),
+    random_prefix: z.string().max(12).optional(),
   })
 }
 
@@ -53,6 +56,9 @@ export type RedemptionFormValues = {
   quota_dollars: number
   expired_time?: Date
   count?: number
+  random_min_dollars?: number
+  random_max_dollars?: number
+  random_prefix?: string
 }
 
 // ============================================================================
@@ -64,6 +70,9 @@ export const REDEMPTION_FORM_DEFAULT_VALUES: RedemptionFormValues = {
   quota_dollars: 10,
   expired_time: undefined,
   count: 1,
+  random_min_dollars: undefined,
+  random_max_dollars: undefined,
+  random_prefix: '',
 }
 
 // ============================================================================
@@ -76,7 +85,7 @@ export const REDEMPTION_FORM_DEFAULT_VALUES: RedemptionFormValues = {
 export function transformFormDataToPayload(
   data: RedemptionFormValues
 ): RedemptionFormData {
-  return {
+  const payload: RedemptionFormData = {
     name: data.name,
     quota: parseQuotaFromDollars(data.quota_dollars),
     expired_time: data.expired_time
@@ -84,6 +93,16 @@ export function transformFormDataToPayload(
       : 0,
     count: data.count || 1,
   }
+  if (
+    data.random_min_dollars !== undefined &&
+    data.random_max_dollars !== undefined
+  ) {
+    payload.random_min = parseQuotaFromDollars(data.random_min_dollars)
+    payload.random_max = parseQuotaFromDollars(data.random_max_dollars)
+    payload.random_prefix = data.random_prefix || ''
+    payload.random_count = data.count || 1
+  }
+  return payload
 }
 
 /**
@@ -100,5 +119,8 @@ export function transformRedemptionToFormDefaults(
         ? new Date(redemption.expired_time * 1000)
         : undefined,
     count: 1,
+    random_min_dollars: undefined,
+    random_max_dollars: undefined,
+    random_prefix: '',
   }
 }

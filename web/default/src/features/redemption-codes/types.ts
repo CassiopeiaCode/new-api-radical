@@ -76,6 +76,10 @@ export interface RedemptionFormData {
   quota: number
   expired_time: number
   count?: number // Only for create
+  random_min?: number
+  random_max?: number
+  random_prefix?: string
+  random_count?: number
   status?: number // Only for status update
 }
 

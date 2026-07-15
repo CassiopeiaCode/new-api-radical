@@ -69,6 +69,9 @@ const EditRedemptionModal = (props) => {
     quota: 100000,
     amount: Number(quotaToDisplayAmount(100000).toFixed(6)),
     count: 1,
+    random_min: null,
+    random_max: null,
+    random_prefix: '',
     expired_time: null,
   });
 
@@ -119,6 +122,16 @@ const EditRedemptionModal = (props) => {
       return;
     }
     localInputs.name = name;
+    if (!isEdit && localInputs.random_min != null && localInputs.random_max != null) {
+      localInputs.random_min = parseInt(localInputs.random_min, 10);
+      localInputs.random_max = parseInt(localInputs.random_max, 10);
+      localInputs.random_count = localInputs.count;
+    } else {
+      delete localInputs.random_min;
+      delete localInputs.random_max;
+      delete localInputs.random_prefix;
+      delete localInputs.random_count;
+    }
     if (!localInputs.expired_time) {
       localInputs.expired_time = 0;
     } else {
@@ -379,6 +392,45 @@ const EditRedemptionModal = (props) => {
                       </Col>
                     )}
                   </Row>
+                  {!isEdit && (
+                    <>
+                      <Row gutter={12} className='mt-2'>
+                        <Col span={12}>
+                          <Form.InputNumber
+                            field='random_min'
+                            label={t('随机最小额度')}
+                            min={0}
+                            placeholder={t('留空则使用固定额度')}
+                            style={{ width: '100%' }}
+                            showClear
+                          />
+                        </Col>
+                        <Col span={12}>
+                          <Form.InputNumber
+                            field='random_max'
+                            label={t('随机最大额度')}
+                            min={0}
+                            placeholder={t('需与最小额度同时填写')}
+                            style={{ width: '100%' }}
+                            showClear
+                          />
+                        </Col>
+                      </Row>
+                      <Row>
+                        <Col span={24}>
+                          <Form.Input
+                            field='random_prefix'
+                            label={t('随机兑换码前缀')}
+                            placeholder='SUMMER-'
+                            maxLength={12}
+                            extraText={t('随机模式使用生成数量作为批量数；创建成功后会下载本次返回的 TXT 兑换码列表。')}
+                            style={{ width: '100%' }}
+                            showClear
+                          />
+                        </Col>
+                      </Row>
+                    </>
+                  )}
                 </Card>
               </div>
             )}
