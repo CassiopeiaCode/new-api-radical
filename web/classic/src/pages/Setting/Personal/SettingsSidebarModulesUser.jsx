@@ -107,6 +107,7 @@ export default function SettingsSidebarModulesUser() {
         deployment: isSidebarModuleAllowed('admin', 'deployment'),
         redemption: isSidebarModuleAllowed('admin', 'redemption'),
         recent_calls: isSidebarModuleAllowed('admin', 'recent_calls'),
+        fingerprint: isSidebarModuleAllowed('admin', 'fingerprint'),
         user: isSidebarModuleAllowed('admin', 'user'),
         setting: isSidebarModuleAllowed('admin', 'setting'),
       };

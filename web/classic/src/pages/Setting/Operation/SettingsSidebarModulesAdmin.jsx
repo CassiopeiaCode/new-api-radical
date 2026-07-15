@@ -67,6 +67,7 @@ export default function SettingsSidebarModulesAdmin(props) {
       user: true,
       subscription: true,
       recent_calls: true,
+      fingerprint: true,
       setting: true,
     },
   });
@@ -129,6 +130,7 @@ export default function SettingsSidebarModulesAdmin(props) {
         user: true,
         subscription: true,
         recent_calls: true,
+        fingerprint: true,
         setting: true,
       },
     };
@@ -199,6 +201,7 @@ export default function SettingsSidebarModulesAdmin(props) {
             user: true,
             subscription: true,
             recent_calls: true,
+            fingerprint: true,
             setting: true,
           },
         };
@@ -277,6 +280,11 @@ export default function SettingsSidebarModulesAdmin(props) {
           key: 'recent_calls',
           title: t('Recent Calls'),
           description: t('查看最近调用的脱敏调试记录'),
+        },
+        {
+          key: 'fingerprint',
+          title: t('Fingerprint associations'),
+          description: t('查看设备指纹与 IP 关联'),
         },
         { key: 'user', title: t('用户管理'), description: t('用户账户管理') },
         {

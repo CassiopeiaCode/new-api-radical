@@ -40,6 +40,7 @@ import { UserContext } from '../../context/User';
 import { StatusContext } from '../../context/Status';
 import { useLocation } from 'react-router-dom';
 import { normalizeLanguage } from '../../i18n/language';
+import { useFingerprint } from '../../hooks/common/useFingerprint';
 const { Sider, Content, Header } = Layout;
 
 const PageLayout = () => {
@@ -50,6 +51,7 @@ const PageLayout = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { i18n } = useTranslation();
   const location = useLocation();
+  useFingerprint(userState?.user?.id);
 
   const cardProPages = [
     '/console/channel',

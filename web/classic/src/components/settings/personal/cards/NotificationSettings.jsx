@@ -89,6 +89,7 @@ const NotificationSettings = ({
       deployment: true,
       subscription: true,
       recent_calls: true,
+      fingerprint: true,
       redemption: true,
       user: true,
       setting: true,
@@ -174,6 +175,7 @@ const NotificationSettings = ({
         deployment: true,
         subscription: true,
         recent_calls: true,
+        fingerprint: true,
         redemption: true,
         user: true,
         setting: true,
@@ -480,7 +482,10 @@ const NotificationSettings = ({
                     checkedText={t('开')}
                     uncheckedText={t('关')}
                     onChange={(value) =>
-                      handleFormChange('upstreamModelUpdateNotifyEnabled', value)
+                      handleFormChange(
+                        'upstreamModelUpdateNotifyEnabled',
+                        value,
+                      )
                     }
                     extraText={t(
                       '仅管理员可用。开启后，当系统定时检测全部渠道发现上游模型变更或检测异常时，将按你选择的通知方式发送汇总通知；渠道或模型过多时会自动省略部分明细。',

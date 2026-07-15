@@ -21,6 +21,7 @@ import {
   Box,
   CreditCard,
   FileText,
+  Fingerprint,
   FlaskConical,
   Key,
   LayoutDashboard,
@@ -149,6 +150,11 @@ export function useSidebarData(): SidebarData {
             title: t('Recent Calls'),
             url: '/recent-calls',
             icon: ScanSearch,
+          },
+          {
+            title: t('Fingerprint associations'),
+            url: '/fingerprints',
+            icon: Fingerprint,
           },
           {
             title: t('System Info'),

@@ -53,6 +53,7 @@ export const DEFAULT_ADMIN_CONFIG = {
     user: true,
     subscription: true,
     recent_calls: true,
+    fingerprint: true,
     setting: true,
   },
 };

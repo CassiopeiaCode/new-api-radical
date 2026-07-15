@@ -76,6 +76,20 @@ func SetApiRouter(router *gin.Engine) {
 			debugRoute.GET("/recent_calls/:id", controller.GetRecentCallByID)
 		}
 
+		fingerprintRoute := apiRouter.Group("/fingerprint")
+		fingerprintRoute.Use(middleware.UserAuth())
+		{
+			fingerprintRoute.POST("/record", middleware.CriticalRateLimit(), controller.RecordFingerprint)
+			fingerprintRoute.GET("/self", controller.GetUserFingerprints)
+		}
+		fingerprintAdminRoute := apiRouter.Group("/fingerprint")
+		fingerprintAdminRoute.Use(middleware.AdminAuth())
+		{
+			fingerprintAdminRoute.GET("/", controller.GetAllFingerprints)
+			fingerprintAdminRoute.GET("/users", controller.FindUsersByFingerprint)
+			fingerprintAdminRoute.GET("/duplicates", controller.GetDuplicateFingerprints)
+		}
+
 		userRoute := apiRouter.Group("/user")
 		{
 			userRoute.POST("/register", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, middleware.TurnstileCheck(), controller.Register)

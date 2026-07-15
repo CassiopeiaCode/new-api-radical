@@ -49,6 +49,7 @@ const routerMap = {
   deployment: '/console/deployment',
   playground: '/console/playground',
   personal: '/console/personal',
+  fingerprint: '/console/fingerprint',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -181,6 +182,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('Recent Calls'),
         itemKey: 'recent_calls',
         to: '/recent-calls',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('Fingerprint associations'),
+        itemKey: 'fingerprint',
+        to: '/fingerprint',
         className: isAdmin() ? '' : 'tableHiddle',
       },
       {

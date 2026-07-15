@@ -156,7 +156,15 @@ export function SidebarModulesSection({
       },
       recent_calls: {
         title: t('Recent Calls'),
-        description: t('Inspect sanitized recent relay requests for debugging.'),
+        description: t(
+          'Inspect sanitized recent relay requests for debugging.'
+        ),
+      },
+      fingerprint: {
+        title: t('Fingerprint associations'),
+        description: t(
+          'Review device fingerprint and IP associations for risk investigation.'
+        ),
       },
     },
   }

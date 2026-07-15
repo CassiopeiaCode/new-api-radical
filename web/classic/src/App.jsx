@@ -35,6 +35,7 @@ import Channel from './pages/Channel';
 import Token from './pages/Token';
 import Redemption from './pages/Redemption';
 import RecentCalls from './pages/RecentCalls';
+import Fingerprint from './pages/Fingerprint';
 import TopUp from './pages/TopUp';
 import Log from './pages/Log';
 import Chat from './pages/Chat';
@@ -169,6 +170,14 @@ function App() {
           element={
             <AdminRoute>
               <RecentCalls />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/fingerprint'
+          element={
+            <AdminRoute>
+              <Fingerprint />
             </AdminRoute>
           }
         />
