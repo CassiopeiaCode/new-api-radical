@@ -139,7 +139,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		})
 	}
 	// Ensure gin.Context is not returned to Gin's pool while any stream goroutine can still use it.
-	defer cleanup()
+	// A stream is not guaranteed to reach a protocol-level [DONE] marker: an
+	// upstream EOF, scanner error, timeout, or client disconnect can end it
+	// first. Flush the final coalesced bytes in every normal writable exit path.
+	defer func() {
+		_ = FlushPendingWriter(c)
+		cleanup()
+	}()
 
 	scanner.Split(bufio.ScanLines)
 	copyCodexSSEHeaders(c, resp)

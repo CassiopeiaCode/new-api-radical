@@ -27,6 +27,7 @@ import {
   ListTodo,
   MessageSquare,
   Radio,
+  ScanSearch,
   ServerCog,
   Settings,
   Ticket,
@@ -143,6 +144,11 @@ export function useSidebarData(): SidebarData {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
+          },
+          {
+            title: t('Recent Calls'),
+            url: '/recent-calls',
+            icon: ScanSearch,
           },
           {
             title: t('System Info'),

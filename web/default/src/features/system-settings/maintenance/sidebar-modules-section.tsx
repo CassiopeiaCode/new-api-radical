@@ -154,6 +154,10 @@ export function SidebarModulesSection({
         title: t('Subscription Management'),
         description: t('Manage subscription plans and pricing.'),
       },
+      recent_calls: {
+        title: t('Recent Calls'),
+        description: t('Inspect sanitized recent relay requests for debugging.'),
+      },
     },
   }
   const formDefaults = useMemo(() => config, [config])

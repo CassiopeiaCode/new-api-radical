@@ -66,6 +66,7 @@ export default function SettingsSidebarModulesAdmin(props) {
       redemption: true,
       user: true,
       subscription: true,
+      recent_calls: true,
       setting: true,
     },
   });
@@ -127,6 +128,7 @@ export default function SettingsSidebarModulesAdmin(props) {
         redemption: true,
         user: true,
         subscription: true,
+        recent_calls: true,
         setting: true,
       },
     };
@@ -196,6 +198,7 @@ export default function SettingsSidebarModulesAdmin(props) {
             redemption: true,
             user: true,
             subscription: true,
+            recent_calls: true,
             setting: true,
           },
         };
@@ -269,6 +272,11 @@ export default function SettingsSidebarModulesAdmin(props) {
           key: 'redemption',
           title: t('兑换码管理'),
           description: t('兑换码生成管理'),
+        },
+        {
+          key: 'recent_calls',
+          title: t('Recent Calls'),
+          description: t('查看最近调用的脱敏调试记录'),
         },
         { key: 'user', title: t('用户管理'), description: t('用户账户管理') },
         {
