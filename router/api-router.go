@@ -67,6 +67,15 @@ func SetApiRouter(router *gin.Engine) {
 		// Universal secure verification routes
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), controller.UniversalVerify)
 
+		// Recent Calls is a short-lived, in-memory diagnostic buffer. It is
+		// intentionally separate from consumption/audit logs and administrator-only.
+		debugRoute := apiRouter.Group("/debug")
+		debugRoute.Use(middleware.AdminAuth())
+		{
+			debugRoute.GET("/recent_calls", controller.GetRecentCalls)
+			debugRoute.GET("/recent_calls/:id", controller.GetRecentCallByID)
+		}
+
 		userRoute := apiRouter.Group("/user")
 		{
 			userRoute.POST("/register", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, middleware.TurnstileCheck(), controller.Register)
