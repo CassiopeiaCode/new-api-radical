@@ -172,6 +172,9 @@
 - 不得形成开放重定向，也不得把访问令牌、敏感 state 或用户信息透传给不受信任站点。
 - 多站点部署使用 `LINUXDO_OAUTH_CALLBACK_URL` 配置 LinuxDO 中登记的固定 HTTPS callback；来源站点由 `LINUXDO_OAUTH_ALLOWED_ORIGINS` 的逗号分隔 HTTPS origin 白名单控制。固定 callback 仅转交授权码与已签名 state 至来源站点，来源站点才可使用本地会话换取 token 并建立登录态。
 - 若可信 TLS 终止链路未保留原始协议头，只能对“同一 host、由 HTTP 形式到达、且该 HTTPS origin 已显式列入白名单”的回调做协议归一化；state 签名、短时有效期和会话 nonce 校验仍为必经条件，不能以此放宽跨 host 或未列入白名单的回调。
+- LinuxDO 控制台只能登记固定 callback，例如 `https://elysiver.h-e.top/api/oauth/linuxdo`；不得再依赖旧的静态 `oauth-redirect-linuxdo.html` 页面，也不得为每个来源站点登记互相竞争的 callback。
+- 从 `elysia.h-e.top` 发起时，固定 callback 所在的 `elysiver.h-e.top` 只能验证 state 格式、签名、有效期和来源白名单后，以 302 转交 `code`、`state` 及 OAuth 错误参数；它不得读取、消费或建立 `elysia` 的会话。转交后的 `elysia` 必须使用该域自己的浏览器 Cookie 完成 nonce 校验、兑换 token 和建立登录态。
+- 从固定 callback 本身发起时不得发生中转，而应在该站点本地完成同一套 state/session 校验；跨站和同站分支都不得将 access token 或用户资料置入 URL。
 
 ### 配置 / API / UI
 
@@ -185,7 +188,7 @@
 
 ### 迁移约束与验收
 
-- 验证允许站点的完整登录闭环、过期 state、篡改 state、跨会话重放和恶意 `redirect_uri`/origin 场景。
+- 验证固定 callback 本站登录和 `elysia → 固定 callback → elysia` 的完整闭环、过期 state、篡改 state、跨会话重放、未列入白名单来源、TLS 终止协议降级，以及恶意 `redirect_uri`/origin 场景。
 
 ## 7. FingerprintJS 用户关联与管理员检索
 

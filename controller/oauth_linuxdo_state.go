@@ -129,7 +129,8 @@ func linuxDOCallbackOrigin() string {
 // source origin. The source host performs the session-bound validation.
 func relayLinuxDOCallback(c *gin.Context, state string) bool {
 	claims, err := parseLinuxDOState(state)
-	if err != nil || linuxDOCallbackOrigin() == "" || requestOrigin(c) != linuxDOCallbackOrigin() || claims.Origin == requestOrigin(c) {
+	callbackOrigin := linuxDOCallbackOrigin()
+	if err != nil || callbackOrigin == "" || !linuxDOOriginInConfiguredAllowlist(claims.Origin) || !linuxDOStateOriginMatchesRequest(callbackOrigin, requestOrigin(c)) || claims.Origin == callbackOrigin {
 		return false
 	}
 	query := url.Values{}
