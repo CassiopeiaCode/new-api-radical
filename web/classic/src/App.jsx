@@ -36,6 +36,8 @@ import Token from './pages/Token';
 import Redemption from './pages/Redemption';
 import RecentCalls from './pages/RecentCalls';
 import Fingerprint from './pages/Fingerprint';
+import ActiveTasks from './pages/ActiveTasks';
+import ActiveTaskUsage from './pages/ActiveTaskUsage';
 import TopUp from './pages/TopUp';
 import Log from './pages/Log';
 import Chat from './pages/Chat';
@@ -179,6 +181,22 @@ function App() {
             <AdminRoute>
               <Fingerprint />
             </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/active-tasks'
+          element={
+            <AdminRoute>
+              <ActiveTasks />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/activity'
+          element={
+            <PrivateRoute>
+              <ActiveTaskUsage />
+            </PrivateRoute>
           }
         />
         <Route

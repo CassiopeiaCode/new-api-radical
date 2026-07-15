@@ -50,6 +50,8 @@ const routerMap = {
   playground: '/console/playground',
   personal: '/console/personal',
   fingerprint: '/console/fingerprint',
+  active_tasks: '/console/active-tasks',
+  activity: '/console/activity',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -135,6 +137,11 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         itemKey: 'personal',
         to: '/personal',
       },
+      {
+        text: t('My model usage'),
+        itemKey: 'activity',
+        to: '/activity',
+      },
     ];
 
     // 根据配置过滤项目
@@ -188,6 +195,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('Fingerprint associations'),
         itemKey: 'fingerprint',
         to: '/fingerprint',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('Active tasks'),
+        itemKey: 'active_tasks',
+        to: '/active-tasks',
         className: isAdmin() ? '' : 'tableHiddle',
       },
       {

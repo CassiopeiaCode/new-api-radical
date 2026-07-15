@@ -115,6 +115,11 @@ export function useSidebarData(): SidebarData {
             url: '/profile',
             icon: User,
           },
+          {
+            title: t('My model usage'),
+            url: '/activity',
+            icon: Activity,
+          },
         ],
       },
       {
@@ -155,6 +160,11 @@ export function useSidebarData(): SidebarData {
             title: t('Fingerprint associations'),
             url: '/fingerprints',
             icon: Fingerprint,
+          },
+          {
+            title: t('Active tasks'),
+            url: '/active-tasks',
+            icon: Activity,
           },
           {
             title: t('System Info'),

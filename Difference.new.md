@@ -229,10 +229,13 @@
 
 - 管理端展示全局/用户槽位使用、活跃任务历史和必要的筛选维度；用户端仅展示本人 24 小时模型用量。
 - 所有数据查询必须落实上游权限模型、分页限制和时间范围限制。
+- 槽位上限由 `ACTIVE_TASK_SLOT_GLOBAL_LIMIT`（默认 `1000`）和 `ACTIVE_TASK_SLOT_USER_LIMIT`（默认 `50`）控制；`ACTIVE_TASK_SLOT_LEASE_SECONDS` 控制异常路径的最终释放租约，默认两小时。所有值在服务端限定安全范围。
+- API：`GET /api/active-task/usage/self`（用户本人 24 小时按模型 token 聚合）；`GET /api/active-task/stats` 与 `GET /api/active-task/history`（管理员，历史接口分页且可按 `user_id` 筛选）。
 
 ### 数据与兼容性
 
 - 热路径状态可保存在内存/缓存，历史观测使用适合查询的持久化模型；两者职责清晰。
+- `high_active_task_records` 为独立的低频历史快照表，启动时通过 `migrateDB` 和 `migrateDBFast` 自动 `AutoMigrate`；不修改既有消费、任务或健康度历史表。
 - 不改写既有消费记录的含义，任务统计与 token 用量应可追溯至已有日志/任务来源。
 
 ### 迁移约束与验收

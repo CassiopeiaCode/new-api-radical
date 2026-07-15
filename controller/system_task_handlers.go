@@ -22,6 +22,29 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(activeTaskHistoryHandler{})
+}
+
+// activeTaskHistoryHandler persists a compact snapshot every ten minutes. The
+// runner's DB lease makes this safe in multi-master deployments; empty snapshots
+// create no row and the high-frequency slot state remains in memory.
+type activeTaskHistoryHandler struct{}
+
+func (activeTaskHistoryHandler) Type() string { return model.SystemTaskTypeActiveTaskHistory }
+
+func (activeTaskHistoryHandler) Enabled() bool { return true }
+
+func (activeTaskHistoryHandler) Interval() time.Duration { return 10 * time.Minute }
+
+func (activeTaskHistoryHandler) NewPayload() any { return nil }
+
+func (activeTaskHistoryHandler) Run(_ context.Context, task *model.SystemTask, runnerID string) {
+	persisted, err := model.PersistHighActiveTaskSnapshot()
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, map[string]int{"records": persisted}, nil)
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and

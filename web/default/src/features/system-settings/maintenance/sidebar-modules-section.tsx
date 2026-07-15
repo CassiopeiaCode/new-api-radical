@@ -128,6 +128,12 @@ export function SidebarModulesSection({
         title: t('Profile'),
         description: t('Personal settings and profile management.'),
       },
+      activity: {
+        title: t('My model usage'),
+        description: t(
+          'Review your token usage by model for the last 24 hours.'
+        ),
+      },
     },
     admin: {
       channel: {
@@ -164,6 +170,12 @@ export function SidebarModulesSection({
         title: t('Fingerprint associations'),
         description: t(
           'Review device fingerprint and IP associations for risk investigation.'
+        ),
+      },
+      active_tasks: {
+        title: t('Active tasks'),
+        description: t(
+          'Review current asynchronous task capacity and history.'
         ),
       },
     },

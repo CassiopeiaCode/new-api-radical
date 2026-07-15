@@ -43,6 +43,7 @@ export const DEFAULT_ADMIN_CONFIG = {
     enabled: true,
     topup: true,
     personal: true,
+    activity: true,
   },
   admin: {
     enabled: true,
@@ -54,6 +55,7 @@ export const DEFAULT_ADMIN_CONFIG = {
     subscription: true,
     recent_calls: true,
     fingerprint: true,
+    active_tasks: true,
     setting: true,
   },
 };

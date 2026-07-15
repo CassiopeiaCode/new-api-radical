@@ -286,6 +286,11 @@ export default function SettingsSidebarModulesAdmin(props) {
           title: t('Fingerprint associations'),
           description: t('查看设备指纹与 IP 关联'),
         },
+        {
+          key: 'active_tasks',
+          title: t('Active tasks'),
+          description: t('查看异步任务槽位和历史'),
+        },
         { key: 'user', title: t('用户管理'), description: t('用户账户管理') },
         {
           key: 'setting',

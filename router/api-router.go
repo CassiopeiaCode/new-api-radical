@@ -90,6 +90,13 @@ func SetApiRouter(router *gin.Engine) {
 			fingerprintAdminRoute.GET("/duplicates", controller.GetDuplicateFingerprints)
 		}
 
+		activeTaskRoute := apiRouter.Group("/active-task")
+		{
+			activeTaskRoute.GET("/usage/self", middleware.UserAuth(), controller.GetMyRecentTokenUsage)
+			activeTaskRoute.GET("/stats", middleware.AdminAuth(), controller.GetActiveTaskStats)
+			activeTaskRoute.GET("/history", middleware.AdminAuth(), controller.GetHighActiveTaskHistory)
+		}
+
 		userRoute := apiRouter.Group("/user")
 		{
 			userRoute.POST("/register", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, middleware.TurnstileCheck(), controller.Register)
