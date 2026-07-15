@@ -2097,6 +2097,20 @@ func TestRemoveDisabledFieldsAllowSpeed(t *testing.T) {
 	assertJSONEqual(t, `{"speed":"fast","store":true}`, string(out))
 }
 
+func TestRemoveDisabledFieldsFastPathKeepsNestedOptions(t *testing.T) {
+	input := `{"service_tier":"flex","payload":"保留 Unicode","stream_options":{"include_obfuscation":false,"include_usage":true}}`
+	out, err := RemoveDisabledFields([]byte(input), dto.ChannelOtherSettings{}, false)
+	require.NoError(t, err)
+	assertJSONEqual(t, `{"payload":"保留 Unicode","stream_options":{"include_usage":true}}`, string(out))
+}
+
+func TestRemoveDisabledFieldsFastPathDropsEmptyStreamOptions(t *testing.T) {
+	input := `{"model":"gpt-4o","stream_options":{"include_obfuscation":false}}`
+	out, err := RemoveDisabledFields([]byte(input), dto.ChannelOtherSettings{}, false)
+	require.NoError(t, err)
+	assertJSONEqual(t, `{"model":"gpt-4o"}`, string(out))
+}
+
 func TestApplyParamOverrideWithRelayInfoRecordsOperationAuditInDebugMode(t *testing.T) {
 	originalDebugEnabled := common2.DebugEnabled
 	common2.DebugEnabled = true

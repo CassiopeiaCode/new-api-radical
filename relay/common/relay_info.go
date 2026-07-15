@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type ThinkingContentInfo struct {
@@ -802,6 +803,9 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 	if !hasRemovableDisabledField(jsonData, channelOtherSettings) {
 		return jsonData, nil
 	}
+	if fastJSON, ok := removeDisabledFieldsFast(jsonData, channelOtherSettings); ok {
+		return fastJSON, nil
+	}
 
 	var data map[string]interface{}
 	if err := common.Unmarshal(jsonData, &data); err != nil {
@@ -866,6 +870,54 @@ func RemoveDisabledFields(jsonData []byte, channelOtherSettings dto.ChannelOther
 		return jsonData, nil
 	}
 	return jsonDataAfter, nil
+}
+
+// removeDisabledFieldsFast changes only known literal paths with sjson. This
+// avoids decoding a potentially large request (for example one with inline
+// base64 media) into map[string]interface{} merely to remove a few fields.
+// Returning false deliberately falls back to the established map-based path.
+func removeDisabledFieldsFast(jsonData []byte, settings dto.ChannelOtherSettings) ([]byte, bool) {
+	result := jsonData
+	deletePath := func(path string) bool {
+		next, err := sjson.DeleteBytes(result, path)
+		if err != nil {
+			return false
+		}
+		result = next
+		return true
+	}
+
+	if !settings.AllowServiceTier && gjson.GetBytes(result, "service_tier").Exists() && !deletePath("service_tier") {
+		return nil, false
+	}
+	if !settings.AllowInferenceGeo && gjson.GetBytes(result, "inference_geo").Exists() && !deletePath("inference_geo") {
+		return nil, false
+	}
+	if !settings.AllowSpeed && gjson.GetBytes(result, "speed").Exists() && !deletePath("speed") {
+		return nil, false
+	}
+	if settings.DisableStore && gjson.GetBytes(result, "store").Exists() && !deletePath("store") {
+		return nil, false
+	}
+	if !settings.AllowSafetyIdentifier && gjson.GetBytes(result, "safety_identifier").Exists() && !deletePath("safety_identifier") {
+		return nil, false
+	}
+
+	if !settings.AllowIncludeObfuscation {
+		streamOptions := gjson.GetBytes(result, "stream_options")
+		if streamOptions.Exists() && gjson.GetBytes(result, "stream_options.include_obfuscation").Exists() {
+			// Keep the old behavior: remove stream_options completely when its
+			// only member was include_obfuscation.
+			if len(streamOptions.Map()) == 1 {
+				if !deletePath("stream_options") {
+					return nil, false
+				}
+			} else if !deletePath("stream_options.include_obfuscation") {
+				return nil, false
+			}
+		}
+	}
+	return result, true
 }
 
 func hasRemovableDisabledField(jsonData []byte, channelOtherSettings dto.ChannelOtherSettings) bool {
