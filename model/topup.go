@@ -99,6 +99,7 @@ func GetPendingEpayTopUps(limit int, minAgeSeconds, maxAgeSeconds int64) ([]*Top
 // quota exactly once. Callback and active reconciliation share this function.
 func CompleteEpayTopUp(tradeNo, actualPaymentMethod, callerIP string) error {
 	var completed *TopUp
+	var quotaToAdd int64
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var topUp TopUp
 		if err := lockForUpdate(tx).Where("trade_no = ?", tradeNo).First(&topUp).Error; err != nil {
@@ -121,15 +122,15 @@ func CompleteEpayTopUp(tradeNo, actualPaymentMethod, callerIP string) error {
 		if err := tx.Save(&topUp).Error; err != nil {
 			return err
 		}
-		quota := decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart()
-		if err := tx.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", gorm.Expr("quota + ?", quota)).Error; err != nil {
+		quotaToAdd = decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart()
+		if err := tx.Model(&User{}).Where("id = ?", topUp.UserId).Update("quota", gorm.Expr("quota + ?", quotaToAdd)).Error; err != nil {
 			return err
 		}
 		completed = &topUp
 		return nil
 	})
 	if err == nil && completed != nil {
-		RecordTopupLog(completed.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(int(completed.Amount*int64(common.QuotaPerUnit))), completed.Money), callerIP, completed.PaymentMethod, PaymentProviderEpay)
+		RecordTopupLog(completed.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(int(quotaToAdd)), completed.Money), callerIP, completed.PaymentMethod, PaymentProviderEpay)
 	}
 	return err
 }

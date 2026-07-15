@@ -63,6 +63,8 @@ const TopupHistoryModal = ({ visible, onCancel, t }) => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [keyword, setKeyword] = useState('');
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileReport, setReconcileReport] = useState(null);
   const isMobile = useIsMobile();
 
   const loadTopups = async (currentPage, currentPageSize) => {
@@ -131,6 +133,40 @@ const TopupHistoryModal = ({ visible, onCancel, t }) => {
       title: t('确认补单'),
       content: t('是否将该订单标记为成功并为用户入账？'),
       onOk: () => handleAdminComplete(tradeNo),
+    });
+  };
+
+  const runEpayReconciliation = async (dryRun) => {
+    setReconciling(true);
+    try {
+      const res = await API.post('/api/user/topup/epay/reconcile', {
+        limit: 100,
+        dry_run: dryRun,
+      });
+      const { success, message, data } = res.data;
+      if (!success) {
+        Toast.error({ content: message || t('EPay对账失败') });
+        return;
+      }
+      setReconcileReport(data);
+      Toast.success({
+        content: t('EPay对账完成：扫描 {{scanned}}，完成 {{completed}}，失败 {{failed}}', data),
+      });
+      if (!dryRun) await loadTopups(page, pageSize);
+    } catch (e) {
+      Toast.error({ content: t('EPay对账失败') });
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  const confirmEpayReconciliation = () => {
+    Modal.confirm({
+      title: t('确认执行 EPay 对账'),
+      content: t('仅会完成服务商验证通过的待支付 EPay 订单，可能为用户入账或开通订阅。建议先执行演练。'),
+      okText: t('执行对账'),
+      cancelText: t('取消'),
+      onOk: () => runEpayReconciliation(false),
     });
   };
 
@@ -260,6 +296,31 @@ const TopupHistoryModal = ({ visible, onCancel, t }) => {
       footer={null}
       size={isMobile ? 'full-width' : 'large'}
     >
+      {userIsAdmin && (
+        <div className='mb-3 rounded border border-warning bg-warning-lightest p-3'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <div>
+              <Text strong>{t('EPay 待支付订单对账')}</Text>
+              <div className='text-xs text-tertiary'>
+                {t('演练最多检查 100 个本地待支付 EPay 订单，不会修改余额；实际执行需要二次确认。')}
+              </div>
+            </div>
+            <div className='flex gap-2'>
+              <Button size='small' theme='outline' loading={reconciling} onClick={() => runEpayReconciliation(true)}>
+                {t('执行演练')}
+              </Button>
+              <Button size='small' type='danger' loading={reconciling} onClick={confirmEpayReconciliation}>
+                {t('执行对账')}
+              </Button>
+            </div>
+          </div>
+          {reconcileReport && (
+            <div className='mt-2 text-xs text-tertiary'>
+              {t('最近结果：扫描 {{scanned}}，完成 {{completed}}，跳过 {{skipped}}，失败 {{failed}}。', reconcileReport)}
+            </div>
+          )}
+        </div>
+      )}
       <div className='mb-3'>
         <Input
           prefix={<IconSearch />}

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Search, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
@@ -48,6 +49,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatCurrencyFromUSD } from '@/lib/currency'
 import { formatNumber } from '@/lib/format'
 
+import { isApiSuccess, reconcileEpayOrders, type EpayReconcileReport } from '../../api'
 import { useBillingHistory } from '../../hooks/use-billing-history'
 import {
   getStatusConfig,
@@ -78,9 +80,14 @@ export function BillingHistoryDialog({
     handlePageSizeChange,
     handleSearch,
     handleCompleteOrder,
+    refresh,
   } = useBillingHistory()
 
   const [confirmTradeNo, setConfirmTradeNo] = useState<string | null>(null)
+  const [confirmReconcile, setConfirmReconcile] = useState(false)
+  const [reconciling, setReconciling] = useState(false)
+  const [reconcileReport, setReconcileReport] =
+    useState<EpayReconcileReport | null>(null)
   const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
 
   const totalPages = Math.ceil(total / pageSize)
@@ -91,6 +98,27 @@ export function BillingHistoryDialog({
       if (success) {
         setConfirmTradeNo(null)
       }
+    }
+  }
+
+  const runEpayReconciliation = async (dryRun: boolean) => {
+    setReconciling(true)
+    try {
+      const response = await reconcileEpayOrders({ limit: 100, dry_run: dryRun })
+      if (!isApiSuccess(response) || !response.data) {
+        toast.error(response.message || t('EPay reconciliation failed'))
+        return
+      }
+      setReconcileReport(response.data)
+      toast.success(
+        t('EPay reconciliation finished: {{scanned}} scanned, {{completed}} completed, {{failed}} failed', response.data)
+      )
+      if (!dryRun) await refresh()
+    } catch {
+      toast.error(t('EPay reconciliation failed'))
+    } finally {
+      setReconciling(false)
+      setConfirmReconcile(false)
     }
   }
 
@@ -108,6 +136,31 @@ export function BillingHistoryDialog({
         bodyClassName='space-y-3'
       >
         <div className='min-h-0 space-y-3'>
+          {isAdmin && (
+            <div className='rounded-lg border border-amber-500/30 bg-amber-500/5 p-3'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
+                <div>
+                  <p className='text-sm font-medium'>{t('EPay pending-order reconciliation')}</p>
+                  <p className='text-muted-foreground text-xs'>
+                    {t('Dry-run checks up to 100 local pending EPay orders and never changes balances. Execute requires confirmation.')}
+                  </p>
+                </div>
+                <div className='flex gap-2'>
+                  <Button size='sm' variant='outline' disabled={reconciling} onClick={() => runEpayReconciliation(true)}>
+                    {reconciling ? t('Processing...') : t('Run dry-run')}
+                  </Button>
+                  <Button size='sm' variant='destructive' disabled={reconciling} onClick={() => setConfirmReconcile(true)}>
+                    {t('Execute reconciliation')}
+                  </Button>
+                </div>
+              </div>
+              {reconcileReport && (
+                <p className='text-muted-foreground mt-2 text-xs'>
+                  {t('Last result: {{scanned}} scanned, {{completed}} completed, {{skipped}} skipped, {{failed}} failed.', reconcileReport)}
+                </p>
+              )}
+            </div>
+          )}
           {/* Search and Filter Bar */}
           <div className='flex items-center gap-2'>
             <div className='relative flex-1'>
@@ -338,6 +391,23 @@ export function BillingHistoryDialog({
               disabled={completing}
             >
               {completing ? t('Processing...') : t('Confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmReconcile} onOpenChange={setConfirmReconcile}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Execute EPay reconciliation?')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('This completes only provider-verified pending EPay orders and may credit user balances or activate subscriptions. Run a dry-run first whenever possible.')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reconciling}>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction disabled={reconciling} onClick={() => runEpayReconciliation(false)}>
+              {reconciling ? t('Processing...') : t('Execute reconciliation')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

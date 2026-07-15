@@ -139,6 +139,22 @@ func TestUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T)
 	}
 }
 
+func TestCompleteEpayTopUpCreditsQuotaExactlyOnce(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 181, 0)
+	insertTopUpForPaymentGuardTest(t, "epay-complete-once", 181, PaymentProviderEpay)
+
+	require.NoError(t, CompleteEpayTopUp("epay-complete-once", "alipay", "203.0.113.10"))
+	assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, "epay-complete-once"))
+	assert.Equal(t, int(2*common.QuotaPerUnit), getUserQuotaForPaymentGuardTest(t, 181))
+
+	// A reconciliation run may race or follow a successful webhook. It must
+	// acknowledge the already completed order without issuing quota again.
+	require.NoError(t, CompleteEpayTopUp("epay-complete-once", "alipay", "203.0.113.10"))
+	assert.Equal(t, int(2*common.QuotaPerUnit), getUserQuotaForPaymentGuardTest(t, 181))
+}
+
 func TestCompleteSubscriptionOrder_RejectsMismatchedPaymentProvider(t *testing.T) {
 	truncateTables(t)
 

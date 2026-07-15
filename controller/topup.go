@@ -143,12 +143,25 @@ func AdminReconcileEpay(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid reconciliation request")
 		return
 	}
+	if req.Limit < 0 || req.Limit > 1000 || req.MinAgeSeconds < 0 || req.MaxAgeSeconds < 0 {
+		common.ApiErrorMsg(c, "invalid reconciliation range")
+		return
+	}
 	dryRun := true
 	if req.DryRun != nil {
 		dryRun = *req.DryRun
 	}
 	report := service.ReconcilePendingEpayOrders(service.EpayReconcileOptions{
 		Limit: req.Limit, MinAgeSeconds: req.MinAgeSeconds, MaxAgeSeconds: req.MaxAgeSeconds, DryRun: dryRun,
+	})
+	mode := "dry-run"
+	if !dryRun {
+		mode = "execute"
+	}
+	recordManageAudit(c, "topup.epay_reconcile", map[string]interface{}{
+		"mode": mode, "limit": req.Limit, "min_age_seconds": req.MinAgeSeconds,
+		"max_age_seconds": req.MaxAgeSeconds, "scanned": report.Scanned,
+		"completed": report.Completed, "skipped": report.Skipped, "failed": report.Failed,
 	})
 	common.ApiSuccess(c, report)
 }

@@ -234,3 +234,26 @@ export async function completeOrder(
   const res = await api.post('/api/user/topup/complete', request)
   return res.data
 }
+
+export type EpayReconcileRequest = {
+  limit?: number
+  min_age_seconds?: number
+  max_age_seconds?: number
+  dry_run: boolean
+}
+
+export type EpayReconcileReport = {
+  scanned: number
+  completed: number
+  skipped: number
+  failed: number
+  dry_run: boolean
+}
+
+/** Reconcile local pending EPay orders (admin only). */
+export async function reconcileEpayOrders(
+  request: EpayReconcileRequest
+): Promise<ApiResponse<EpayReconcileReport>> {
+  const res = await api.post('/api/user/topup/epay/reconcile', request)
+  return res.data
+}
