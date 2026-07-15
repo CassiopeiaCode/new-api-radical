@@ -2,10 +2,12 @@ package model
 
 import (
 	"container/list"
+	"context"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -136,6 +138,42 @@ type ActiveTaskSlotManager struct {
 	lease       time.Duration
 }
 
+const (
+	activeTaskRedisGlobalKey  = "active_task_slots:global"
+	activeTaskRedisSlotPrefix = "active_task_slot:"
+	activeTaskRedisTaskPrefix = "active_task_slot_task:"
+)
+
+var activeTaskRedisAcquireScript = `
+local now = tonumber(ARGV[1])
+local expires = tonumber(ARGV[2])
+local globalLimit = tonumber(ARGV[3])
+local userLimit = tonumber(ARGV[4])
+local token = ARGV[5]
+local payload = ARGV[6]
+local ttl = tonumber(ARGV[7])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now)
+if redis.call('ZCARD', KEYS[1]) >= globalLimit then return 1 end
+if redis.call('ZCARD', KEYS[2]) >= userLimit then return 2 end
+redis.call('ZADD', KEYS[1], expires, token)
+redis.call('ZADD', KEYS[2], expires, token)
+redis.call('SET', KEYS[3], payload, 'EX', ttl)
+return 0
+`
+
+var activeTaskRedisReleaseScript = `
+local payload = redis.call('GET', KEYS[2])
+if not payload then return 0 end
+local separator = string.find(payload, '|', 1, true)
+if not separator then return 0 end
+local userID = string.sub(payload, 1, separator - 1)
+redis.call('ZREM', KEYS[1], ARGV[1])
+redis.call('ZREM', 'active_task_slots:user:' .. userID, ARGV[1])
+redis.call('DEL', KEYS[2])
+return 1
+`
+
 func activeTaskGlobalLimit() int {
 	value := common.GetEnvOrDefault("ACTIVE_TASK_SLOT_GLOBAL_LIMIT", defaultActiveTaskGlobalLimit)
 	if value < 1 {
@@ -186,22 +224,18 @@ var globalActiveTaskSlotManager = newActiveTaskSlotManager(activeTaskGlobalLimit
 
 func GetActiveTaskSlotManager() *ActiveTaskSlotManager { return globalActiveTaskSlotManager }
 
-// Acquire reserves one real task slot. Limits are checked while holding the
-// same lock as insertion, so a failed request cannot over-admit under local
-// concurrency. State is intentionally rebuilt empty after a restart; this is
-// safe recovery rather than retaining an unreleaseable in-memory reservation.
+func (m *ActiveTaskSlotManager) usesRedis() bool {
+	return common.RedisEnabled && common.RDB != nil
+}
+
+// Acquire reserves one real task slot. When Redis is configured, its Lua
+// transaction is the cross-instance authority for both limits and lease
+// recovery. Without Redis, the process-local lock remains a safe single-node
+// fallback. In neither mode are stale in-memory reservations retained across a
+// restart.
 func (m *ActiveTaskSlotManager) Acquire(userID int, username, modelName string, requestBody []byte) (*ActiveTaskSlot, error) {
 	if userID <= 0 {
 		return nil, errors.New("invalid user id")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.expireLocked(time.Now())
-	if len(m.slots) >= m.globalLimit {
-		return nil, ErrActiveTaskGlobalLimit
-	}
-	if len(m.userTokens[userID]) >= m.userLimit {
-		return nil, ErrActiveTaskUserLimit
 	}
 	token, err := common.GenerateRandomCharsKey(32)
 	if err != nil {
@@ -217,6 +251,24 @@ func (m *ActiveTaskSlotManager) Acquire(userID int, username, modelName string, 
 		AcquiredAt:  now,
 		ExpiresAt:   now.Add(m.lease),
 	}
+	if m.usesRedis() {
+		if err := m.acquireRedisSlot(slot); err != nil {
+			return nil, err
+		}
+		m.mu.Lock()
+		m.recordProfileLocked(slot)
+		m.mu.Unlock()
+		return cloneActiveTaskSlot(slot), nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.expireLocked(time.Now())
+	if len(m.slots) >= m.globalLimit {
+		return nil, ErrActiveTaskGlobalLimit
+	}
+	if len(m.userTokens[userID]) >= m.userLimit {
+		return nil, ErrActiveTaskUserLimit
+	}
 	m.slots[slot.Token] = slot
 	if m.userTokens[userID] == nil {
 		m.userTokens[userID] = make(map[string]struct{})
@@ -226,9 +278,43 @@ func (m *ActiveTaskSlotManager) Acquire(userID int, username, modelName string, 
 	return cloneActiveTaskSlot(slot), nil
 }
 
+func (m *ActiveTaskSlotManager) acquireRedisSlot(slot *ActiveTaskSlot) error {
+	now := time.Now().Unix()
+	ttl := int64(m.lease.Seconds())
+	payload := strconv.Itoa(slot.UserID) + "|" + slot.Username
+	result, err := common.RDB.Eval(
+		context.Background(),
+		activeTaskRedisAcquireScript,
+		[]string{activeTaskRedisGlobalKey, activeTaskRedisUserKey(slot.UserID), activeTaskRedisSlotKey(slot.Token)},
+		now,
+		slot.ExpiresAt.Unix(),
+		m.globalLimit,
+		m.userLimit,
+		slot.Token,
+		payload,
+		ttl,
+	).Int()
+	if err != nil {
+		return fmt.Errorf("acquire distributed active task slot: %w", err)
+	}
+	switch result {
+	case 0:
+		return nil
+	case 1:
+		return ErrActiveTaskGlobalLimit
+	case 2:
+		return ErrActiveTaskUserLimit
+	default:
+		return fmt.Errorf("unexpected distributed active task slot result: %d", result)
+	}
+}
+
 func (m *ActiveTaskSlotManager) AttachTaskID(token, taskID string) bool {
 	if token == "" || taskID == "" {
 		return false
+	}
+	if m.usesRedis() {
+		return m.attachRedisTaskID(token, taskID)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -248,21 +334,67 @@ func (m *ActiveTaskSlotManager) AttachTaskID(token, taskID string) bool {
 	return true
 }
 
+func (m *ActiveTaskSlotManager) attachRedisTaskID(token, taskID string) bool {
+	ctx := context.Background()
+	ttl, err := common.RDB.TTL(ctx, activeTaskRedisSlotKey(token)).Result()
+	if err != nil || ttl <= 0 {
+		return false
+	}
+	key := activeTaskRedisTaskKey(taskID)
+	created, err := common.RDB.SetNX(ctx, key, token, ttl).Result()
+	return err == nil && created
+}
+
 // Release is idempotent and is used for submit failures, client cancellation,
 // terminal task states, and lease expiry.
 func (m *ActiveTaskSlotManager) Release(token string) bool {
+	if m.usesRedis() {
+		return m.releaseRedisSlot(token)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.releaseLocked(token)
 }
 
 func (m *ActiveTaskSlotManager) ReleaseByTaskID(taskID string) bool {
+	if m.usesRedis() {
+		ctx := context.Background()
+		token, err := common.RDB.Get(ctx, activeTaskRedisTaskKey(taskID)).Result()
+		if err != nil || token == "" {
+			return false
+		}
+		if !m.releaseRedisSlot(token) {
+			return false
+		}
+		_ = common.RDB.Del(ctx, activeTaskRedisTaskKey(taskID)).Err()
+		return true
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.releaseLocked(m.taskTokens[taskID])
 }
 
+func (m *ActiveTaskSlotManager) releaseRedisSlot(token string) bool {
+	if token == "" {
+		return false
+	}
+	result, err := common.RDB.Eval(
+		context.Background(),
+		activeTaskRedisReleaseScript,
+		[]string{activeTaskRedisGlobalKey, activeTaskRedisSlotKey(token)},
+		token,
+	).Int()
+	return err == nil && result == 1
+}
+
 func (m *ActiveTaskSlotManager) SweepExpired() int {
+	if m.usesRedis() {
+		removed, err := common.RDB.ZRemRangeByScore(context.Background(), activeTaskRedisGlobalKey, "-inf", strconv.FormatInt(time.Now().Unix(), 10)).Result()
+		if err != nil {
+			return 0
+		}
+		return int(removed)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.expireLocked(time.Now())
@@ -330,12 +462,81 @@ func (m *ActiveTaskSlotManager) userProfileCountLocked(userID int) int {
 }
 
 func (m *ActiveTaskSlotManager) Stats() ActiveTaskStats {
+	if m.usesRedis() {
+		stats, err := m.redisStats()
+		if err == nil {
+			return stats
+		}
+		// Capacity is fail-closed when Redis is enabled; do not quietly report
+		// process-local values as a distributed global value after a backend outage.
+		return ActiveTaskStats{GlobalLimit: m.globalLimit, UserLimit: m.userLimit, LeaseSeconds: int64(m.lease.Seconds())}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.expireLocked(time.Now())
 	rank := m.rankLocked()
 	return ActiveTaskStats{GlobalActiveSlots: len(m.slots), GlobalLimit: m.globalLimit, UserLimit: m.userLimit, LeaseSeconds: int64(m.lease.Seconds()), ActiveUsers: len(m.userTokens), Rank: rank}
 }
+
+func (m *ActiveTaskSlotManager) redisStats() (ActiveTaskStats, error) {
+	ctx := context.Background()
+	now := strconv.FormatInt(time.Now().Unix(), 10)
+	if err := common.RDB.ZRemRangeByScore(ctx, activeTaskRedisGlobalKey, "-inf", now).Err(); err != nil {
+		return ActiveTaskStats{}, err
+	}
+	tokens, err := common.RDB.ZRange(ctx, activeTaskRedisGlobalKey, 0, -1).Result()
+	if err != nil {
+		return ActiveTaskStats{}, err
+	}
+	counts := make(map[int]ActiveTaskUserCount)
+	if len(tokens) > 0 {
+		keys := make([]string, 0, len(tokens))
+		for _, token := range tokens {
+			keys = append(keys, activeTaskRedisSlotKey(token))
+		}
+		values, err := common.RDB.MGet(ctx, keys...).Result()
+		if err != nil {
+			return ActiveTaskStats{}, err
+		}
+		for _, value := range values {
+			payload, ok := value.(string)
+			if !ok {
+				continue
+			}
+			parts := strings.SplitN(payload, "|", 2)
+			userID, err := strconv.Atoi(parts[0])
+			if err != nil || userID <= 0 {
+				continue
+			}
+			entry := counts[userID]
+			entry.UserID = userID
+			if len(parts) == 2 {
+				entry.Username = parts[1]
+			}
+			entry.ActiveSlots++
+			counts[userID] = entry
+		}
+	}
+	rank := make([]ActiveTaskUserCount, 0, len(counts))
+	for _, entry := range counts {
+		rank = append(rank, entry)
+	}
+	sort.Slice(rank, func(i, j int) bool {
+		if rank[i].ActiveSlots == rank[j].ActiveSlots {
+			return rank[i].UserID < rank[j].UserID
+		}
+		return rank[i].ActiveSlots > rank[j].ActiveSlots
+	})
+	return ActiveTaskStats{GlobalActiveSlots: len(tokens), GlobalLimit: m.globalLimit, UserLimit: m.userLimit, LeaseSeconds: int64(m.lease.Seconds()), ActiveUsers: len(rank), Rank: rank}, nil
+}
+
+func activeTaskRedisUserKey(userID int) string {
+	return "active_task_slots:user:" + strconv.Itoa(userID)
+}
+
+func activeTaskRedisSlotKey(token string) string { return activeTaskRedisSlotPrefix + token }
+
+func activeTaskRedisTaskKey(taskID string) string { return activeTaskRedisTaskPrefix + taskID }
 
 func (m *ActiveTaskSlotManager) rankLocked() []ActiveTaskUserCount {
 	rank := make([]ActiveTaskUserCount, 0, len(m.userTokens))
