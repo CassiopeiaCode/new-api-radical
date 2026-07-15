@@ -128,6 +128,31 @@ type EpayRequest struct {
 	PaymentMethod string `json:"payment_method"`
 }
 
+type AdminReconcileEpayRequest struct {
+	Limit         int   `json:"limit"`
+	MinAgeSeconds int64 `json:"min_age_seconds"`
+	MaxAgeSeconds int64 `json:"max_age_seconds"`
+	DryRun        *bool `json:"dry_run"`
+}
+
+// AdminReconcileEpay defaults to dry-run. A caller must explicitly send
+// dry_run=false to allow payment completion; the route is AdminAuth-protected.
+func AdminReconcileEpay(c *gin.Context) {
+	var req AdminReconcileEpayRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid reconciliation request")
+		return
+	}
+	dryRun := true
+	if req.DryRun != nil {
+		dryRun = *req.DryRun
+	}
+	report := service.ReconcilePendingEpayOrders(service.EpayReconcileOptions{
+		Limit: req.Limit, MinAgeSeconds: req.MinAgeSeconds, MaxAgeSeconds: req.MaxAgeSeconds, DryRun: dryRun,
+	})
+	common.ApiSuccess(c, report)
+}
+
 type AmountRequest struct {
 	Amount int64 `json:"amount"`
 }

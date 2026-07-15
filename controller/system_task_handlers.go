@@ -23,6 +23,22 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
 	service.RegisterSystemTaskHandler(activeTaskHistoryHandler{})
+	service.RegisterSystemTaskHandler(epayReconcileHandler{})
+}
+
+type epayReconcileHandler struct{}
+
+func (epayReconcileHandler) Type() string { return model.SystemTaskTypeEpayReconcile }
+func (epayReconcileHandler) Enabled() bool {
+	return common.GetEnvOrDefaultBool("EPAY_ORDER_RECONCILE_ENABLED", false)
+}
+func (epayReconcileHandler) Interval() time.Duration { return time.Minute }
+func (epayReconcileHandler) NewPayload() any         { return nil }
+func (epayReconcileHandler) Run(_ context.Context, task *model.SystemTask, runnerID string) {
+	window := int64(common.GetEnvOrDefault("EPAY_ORDER_RECONCILE_AUTO_WINDOW_SECONDS", 600))
+	limit := common.GetEnvOrDefault("EPAY_ORDER_RECONCILE_BATCH_SIZE", 100)
+	report := service.ReconcilePendingEpayOrders(service.EpayReconcileOptions{Limit: limit, MaxAgeSeconds: window})
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, report, nil)
 }
 
 // activeTaskHistoryHandler persists a compact snapshot every ten minutes. The

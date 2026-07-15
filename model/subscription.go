@@ -249,6 +249,25 @@ func GetSubscriptionOrderByTradeNo(tradeNo string) *SubscriptionOrder {
 	return &order
 }
 
+// GetPendingEpaySubscriptionOrders returns only recent pending orders from the
+// EPay gateway. Reconciliation deliberately never scans completed or orders
+// owned by another payment provider.
+func GetPendingEpaySubscriptionOrders(limit int, minAgeSeconds, maxAgeSeconds int64) ([]*SubscriptionOrder, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	now := common.GetTimestamp()
+	query := DB.Where("status = ? AND payment_provider = ?", common.TopUpStatusPending, PaymentProviderEpay)
+	if minAgeSeconds > 0 {
+		query = query.Where("create_time <= ?", now-minAgeSeconds)
+	}
+	if maxAgeSeconds > 0 {
+		query = query.Where("create_time >= ?", now-maxAgeSeconds)
+	}
+	var orders []*SubscriptionOrder
+	return orders, query.Order("id ASC").Limit(limit).Find(&orders).Error
+}
+
 // User subscription instance
 type UserSubscription struct {
 	Id     int `json:"id"`
