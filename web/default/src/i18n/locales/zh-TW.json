@@ -5186,6 +5186,7 @@
     "Current usage": "目前使用情況",
     "Active task history": "活躍任務歷史",
     "Global slots": "全域槽位",
-    "Failed to load active tasks": "載入活躍任務失敗"
+    "Failed to load active tasks": "載入活躍任務失敗",
+    "Activity window": "活躍度時間視窗"
   }
 }

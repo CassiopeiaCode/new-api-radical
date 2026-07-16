@@ -314,6 +314,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())
 	}
+	recordActiveTaskActivity(c, userId, modelName)
 }
 
 type RecordConsumeLogParams struct {
@@ -379,6 +380,36 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			ChannelID: params.ChannelId,
 			NodeName:  common.NodeName,
 		})
+	}
+	recordActiveTaskActivity(c, userId, params.ModelName)
+}
+
+func recordActiveTaskActivity(c *gin.Context, userID int, modelName string) {
+	if c == nil || c.Request == nil || userID <= 0 || !isActiveTaskActivityPath(c.Request.URL.Path) {
+		return
+	}
+	username := c.GetString("username")
+	requestBody := []byte(modelName)
+	if storage, err := common.GetBodyStorage(c); err == nil {
+		if body, bodyErr := storage.Bytes(); bodyErr == nil {
+			requestBody = append([]byte(nil), body...)
+		}
+	}
+	if err := GetActiveTaskSlotManager().RecordActivity(userID, username, modelName, requestBody); err != nil {
+		common.SysLog("failed to record active task activity: " + err.Error())
+	}
+}
+
+func isActiveTaskActivityPath(path string) bool {
+	switch {
+	case strings.Contains(path, "/chat/completions"):
+		return true
+	case strings.Contains(path, "/v1/completions"), strings.Contains(path, "/v1/responses"), strings.Contains(path, "/v1/messages"):
+		return true
+	case strings.Contains(path, "/v1beta/models/") && strings.Contains(path, "generateContent"):
+		return true
+	default:
+		return false
 	}
 }
 

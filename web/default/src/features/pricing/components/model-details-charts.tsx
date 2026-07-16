@@ -29,25 +29,33 @@ import { VCHART_OPTION } from '@/lib/vchart'
 
 import type { LatencyTimePoint, UptimeDayPoint } from '../lib/mock-stats'
 
-function formatHourLabel(iso: string): string {
-  const date = new Date(iso)
-  const hours = date.getHours()
-  return `${String(hours).padStart(2, '0')}:00`
+function inferBucketSeconds(values: string[]): number {
+  const timestamps = values
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b)
+  let minimum = Number.POSITIVE_INFINITY
+  for (let index = 1; index < timestamps.length; index += 1) {
+    const difference = (timestamps[index] - timestamps[index - 1]) / 1000
+    if (difference > 0 && difference < minimum) minimum = difference
+  }
+  return Number.isFinite(minimum) ? minimum : 3600
 }
 
-function formatDayLabel(date: string): string {
-  const parsed = new Date(date)
-  if (date.includes('T')) {
-    return parsed.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-    })
+function formatBucketLabel(iso: string, bucketSeconds: number): string {
+  const date = new Date(iso)
+  if (bucketSeconds >= 24 * 60 * 60) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
   }
-  return parsed.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-  })
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  const hours = date.getHours()
+  const minutes = date.getMinutes()
+  const base = `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+  if (bucketSeconds < 60) {
+    return `${base}:${String(date.getSeconds()).padStart(2, '0')}`
+  }
+  return base
 }
 
 function getChartThemeTokens(resolvedTheme: string) {
@@ -103,8 +111,11 @@ export function LatencyTrendChart(props: {
 
   const spec = useMemo(() => {
     if (props.series.length === 0) return null
+    const bucketSeconds = inferBucketSeconds(
+      props.series.map((point) => point.timestamp)
+    )
     const data = props.series.map((point) => ({
-      time: formatHourLabel(point.timestamp),
+      time: formatBucketLabel(point.timestamp, bucketSeconds),
       group: point.group,
       ttft: point.ttft_ms,
     }))
@@ -202,8 +213,12 @@ export function UptimeTrendChart(props: {
   const spec = useMemo(() => {
     if (props.series.length === 0) return null
 
+    const bucketSeconds = inferBucketSeconds(
+      props.series.map((point) => point.date)
+    )
+
     const rawData = props.series.map((point) => ({
-      date: formatDayLabel(point.date),
+      date: formatBucketLabel(point.date, bucketSeconds),
       uptime: toUptimeChartValue(point.uptime_pct),
       incidents: point.incidents,
       outage: point.outage_minutes,

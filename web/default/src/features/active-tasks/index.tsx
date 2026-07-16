@@ -30,6 +30,13 @@ type History = {
   global_active_slots: number;
 };
 
+const ACTIVITY_WINDOWS = [30, 60, 300, 600, 1800, 3600] as const;
+
+function formatActivityWindow(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  return `${seconds / 60}m`;
+}
+
 function normalizeDateLocale(language: string): string | undefined {
   const compact = language.replace(/[-_]/g, '').toLowerCase();
   const candidate =
@@ -50,11 +57,14 @@ export function ActiveTasks() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [history, setHistory] = useState<History[]>([]);
   const [loading, setLoading] = useState(false);
+  const [windowSeconds, setWindowSeconds] = useState(30);
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [statsResponse, historyResponse] = await Promise.all([
-        api.get("/api/active-task/stats"),
+        api.get("/api/active-task/stats", {
+          params: { window: windowSeconds, limit: 200 },
+        }),
         api.get("/api/active-task/history?p=1&page_size=100"),
       ]);
       setStats(statsResponse.data?.data ?? null);
@@ -62,12 +72,26 @@ export function ActiveTasks() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [windowSeconds]);
   useEffect(() => void load(), [load]);
   return (
     <SectionPageLayout fixedContent>
       <SectionPageLayout.Title>{t("Active tasks")}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
+        <label className="text-muted-foreground flex items-center gap-2 text-sm">
+          <span>{t("Activity window")}</span>
+          <select
+            className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+            value={windowSeconds}
+            onChange={(event) => setWindowSeconds(Number(event.target.value))}
+          >
+            {ACTIVITY_WINDOWS.map((seconds) => (
+              <option key={seconds} value={seconds}>
+                {formatActivityWindow(seconds)}
+              </option>
+            ))}
+          </select>
+        </label>
         <Button onClick={() => void load()} disabled={loading}>
           {loading ? t("Loading...") : t("Refresh")}
         </Button>

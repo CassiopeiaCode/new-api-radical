@@ -3,17 +3,19 @@ package model
 import (
 	"container/list"
 	"context"
+	"crypto/rand"
+	"crypto/sha1"
 	"errors"
 	"fmt"
-	"hash/fnv"
+	"math/bits"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/go-redis/redis/v8"
 )
 
 const (
@@ -21,14 +23,21 @@ const (
 	defaultActiveTaskUserLimit   = 50
 	defaultActiveTaskLease       = 2 * time.Hour
 	defaultActiveTaskWindow      = 30 * time.Second
-	activeTaskProfileLimit       = 4096
-	activeTaskProfileUserLimit   = 128
+	maxActiveTaskActivityWindow  = time.Hour
+	activeTaskHistoryWindow      = 10 * time.Minute
+	activeTaskHistoryThreshold   = 5
+	activeTaskSimHashThreshold   = 5
 )
 
 var (
 	ErrActiveTaskGlobalLimit = errors.New("global active task limit reached")
 	ErrActiveTaskUserLimit   = errors.New("user active task limit reached")
+	activeTaskSimHashSalt    [16]byte
 )
+
+func init() {
+	_, _ = rand.Read(activeTaskSimHashSalt[:])
+}
 
 // HighActiveTaskRecord is a durable, low-frequency observation snapshot. It
 // deliberately does not duplicate task or consumption data: active slots are
@@ -63,8 +72,8 @@ func ListHighActiveTaskRecords(pageInfo *common.PageInfo, userID int) ([]HighAct
 }
 
 // ActiveTaskSlot is one actual in-flight asynchronous task. A similar request
-// never reuses another task's capacity; SimHash/LRU are used solely to retain a
-// bounded activity profile for diagnostics and grouping.
+// never reuses another task's capacity. Conversational activity profiles are
+// tracked separately and do not consume these slots.
 type ActiveTaskSlot struct {
 	Token       string
 	TaskID      string
@@ -95,6 +104,7 @@ type ActiveTaskStats struct {
 	GlobalLimit       int                   `json:"global_limit"`
 	UserLimit         int                   `json:"user_limit"`
 	LeaseSeconds      int64                 `json:"lease_seconds"`
+	WindowSeconds     int64                 `json:"window_seconds"`
 	ActiveUsers       int                   `json:"active_users"`
 	Rank              []ActiveTaskUserCount `json:"rank"`
 }
@@ -115,6 +125,10 @@ const (
 	activeTaskRedisGlobalKey  = "active_task_slots:global"
 	activeTaskRedisSlotPrefix = "active_task_slot:"
 	activeTaskRedisTaskPrefix = "active_task_slot_task:"
+
+	activeTaskActivityGlobalKey  = "active_task_activity:global"
+	activeTaskActivityUserPrefix = "active_task_activity:user:"
+	activeTaskActivityMetaPrefix = "active_task_activity:meta:"
 )
 
 var activeTaskRedisAcquireScript = `
@@ -144,6 +158,60 @@ local userID = string.sub(payload, 1, separator - 1)
 redis.call('ZREM', KEYS[1], ARGV[1])
 redis.call('ZREM', 'active_task_slots:user:' .. userID, ARGV[1])
 redis.call('DEL', KEYS[2])
+return 1
+`
+
+var activeTaskActivityRecordScript = `
+local globalKey = KEYS[1]
+local userKey = KEYS[2]
+local now = tonumber(ARGV[1])
+local cutoff = tonumber(ARGV[2])
+local globalLimit = tonumber(ARGV[3])
+local userLimit = tonumber(ARGV[4])
+local member = ARGV[5]
+local payload = ARGV[6]
+local ttl = tonumber(ARGV[7])
+local metaPrefix = ARGV[8]
+local userPrefix = ARGV[9]
+local previousMember = ARGV[10]
+
+local function removeMember(value)
+  local metadata = redis.call('GET', metaPrefix .. value)
+  redis.call('ZREM', globalKey, value)
+  if metadata then
+    local separator = string.find(metadata, '|', 1, true)
+    if separator then
+      local userID = string.sub(metadata, 1, separator - 1)
+      redis.call('ZREM', userPrefix .. userID, value)
+    end
+  end
+  redis.call('DEL', metaPrefix .. value)
+end
+
+local expired = redis.call('ZRANGEBYSCORE', globalKey, '-inf', cutoff)
+for _, value in ipairs(expired) do
+  removeMember(value)
+end
+
+if previousMember ~= '' and previousMember ~= member then
+  removeMember(previousMember)
+end
+
+if redis.call('ZSCORE', userKey, member) == false and redis.call('ZCARD', userKey) >= userLimit then
+  local oldest = redis.call('ZRANGE', userKey, 0, 0)
+  if oldest[1] then removeMember(oldest[1]) end
+end
+
+if redis.call('ZSCORE', globalKey, member) == false and redis.call('ZCARD', globalKey) >= globalLimit then
+  local oldest = redis.call('ZRANGE', globalKey, 0, 0)
+  if oldest[1] then removeMember(oldest[1]) end
+end
+
+redis.call('ZADD', globalKey, now, member)
+redis.call('ZADD', userKey, now, member)
+redis.call('SET', metaPrefix .. member, payload, 'EX', ttl)
+redis.call('EXPIRE', globalKey, ttl)
+redis.call('EXPIRE', userKey, ttl)
 return 1
 `
 
@@ -228,9 +296,6 @@ func (m *ActiveTaskSlotManager) Acquire(userID int, username, modelName string, 
 		if err := m.acquireRedisSlot(slot); err != nil {
 			return nil, err
 		}
-		m.mu.Lock()
-		m.recordProfileLocked(slot)
-		m.mu.Unlock()
 		return cloneActiveTaskSlot(slot), nil
 	}
 	m.mu.Lock()
@@ -247,8 +312,75 @@ func (m *ActiveTaskSlotManager) Acquire(userID int, username, modelName string, 
 		m.userTokens[userID] = make(map[string]struct{})
 	}
 	m.userTokens[userID][slot.Token] = struct{}{}
-	m.recordProfileLocked(slot)
 	return cloneActiveTaskSlot(slot), nil
+}
+
+// RecordActivity refreshes one short-lived conversational activity profile.
+// It is deliberately separate from Acquire/Release: ordinary chat traffic is
+// observable here but never consumes asynchronous task capacity.
+func (m *ActiveTaskSlotManager) RecordActivity(userID int, username, modelName string, requestBody []byte) error {
+	if userID <= 0 {
+		return nil
+	}
+	fingerprint := activeTaskSimHash(modelName, requestBody)
+	now := time.Now()
+	if m.usesRedis() {
+		return m.recordRedisActivity(userID, username, fingerprint, now)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recordLocalActivityLocked(userID, username, fingerprint, now)
+	return nil
+}
+
+func (m *ActiveTaskSlotManager) recordRedisActivity(userID int, username string, fingerprint uint64, now time.Time) error {
+	previousMember := m.findRedisActivityMember(userID, fingerprint, now.Add(-maxActiveTaskActivityWindow).Unix())
+	member := fmt.Sprintf("%d:%016x", userID, fingerprint)
+	payload := strconv.Itoa(userID) + "|" + strings.ReplaceAll(username, "|", " ")
+	ttl := int64((maxActiveTaskActivityWindow * 2).Seconds())
+	return common.RDB.Eval(
+		context.Background(),
+		activeTaskActivityRecordScript,
+		[]string{activeTaskActivityGlobalKey, activeTaskActivityUserKey(userID)},
+		now.Unix(),
+		now.Add(-maxActiveTaskActivityWindow).Unix(),
+		m.globalLimit,
+		m.userLimit,
+		member,
+		payload,
+		ttl,
+		activeTaskActivityMetaPrefix,
+		activeTaskActivityUserPrefix,
+		previousMember,
+	).Err()
+}
+
+func (m *ActiveTaskSlotManager) findRedisActivityMember(userID int, fingerprint uint64, cutoff int64) string {
+	members, err := common.RDB.ZRangeByScore(context.Background(), activeTaskActivityUserKey(userID), &redis.ZRangeBy{
+		Min: strconv.FormatInt(cutoff, 10),
+		Max: "+inf",
+	}).Result()
+	if err != nil {
+		return ""
+	}
+	bestMember := ""
+	bestDistance := activeTaskSimHashThreshold + 1
+	for _, member := range members {
+		separator := strings.LastIndexByte(member, ':')
+		if separator < 0 || separator == len(member)-1 {
+			continue
+		}
+		candidate, err := strconv.ParseUint(member[separator+1:], 16, 64)
+		if err != nil {
+			continue
+		}
+		distance := bits.OnesCount64(candidate ^ fingerprint)
+		if distance <= activeTaskSimHashThreshold && distance < bestDistance {
+			bestMember = member
+			bestDistance = distance
+		}
+	}
+	return bestMember
 }
 
 func (m *ActiveTaskSlotManager) acquireRedisSlot(slot *ActiveTaskSlot) error {
@@ -401,27 +533,60 @@ func (m *ActiveTaskSlotManager) releaseLocked(token string) bool {
 	return true
 }
 
-func (m *ActiveTaskSlotManager) recordProfileLocked(slot *ActiveTaskSlot) {
-	key := fmt.Sprintf("%d:%016x", slot.UserID, slot.Fingerprint>>16) // first 48 SimHash bits: coarse grouping level
-	if profile := m.profiles[key]; profile != nil {
-		profile.username = slot.Username
-		profile.fingerprint = slot.Fingerprint
-		profile.lastSeen = slot.AcquiredAt
+func (m *ActiveTaskSlotManager) recordLocalActivityLocked(userID int, username string, fingerprint uint64, now time.Time) {
+	m.pruneLocalActivityLocked(now.Add(-maxActiveTaskActivityWindow))
+	for _, profile := range m.profiles {
+		if profile.userID != userID || bits.OnesCount64(profile.fingerprint^fingerprint) > activeTaskSimHashThreshold {
+			continue
+		}
+		profile.username = username
+		profile.fingerprint = fingerprint
+		profile.lastSeen = now
 		m.profileLRU.MoveToBack(profile.element)
 		return
 	}
-	profile := &activeTaskProfile{userID: slot.UserID, username: slot.Username, fingerprint: slot.Fingerprint, lastSeen: slot.AcquiredAt}
-	profile.element = m.profileLRU.PushBack(key)
-	m.profiles[key] = profile
-	for len(m.profiles) > activeTaskProfileLimit || m.userProfileCountLocked(slot.UserID) > activeTaskProfileUserLimit {
-		front := m.profileLRU.Front()
-		if front == nil {
+
+	for m.userProfileCountLocked(userID) >= m.userLimit {
+		if !m.removeOldestLocalActivityLocked(userID) {
 			break
 		}
-		oldKey := front.Value.(string)
-		delete(m.profiles, oldKey)
-		m.profileLRU.Remove(front)
 	}
+	for len(m.profiles) >= m.globalLimit {
+		if !m.removeOldestLocalActivityLocked(0) {
+			break
+		}
+	}
+
+	key := fmt.Sprintf("%d:%016x", userID, fingerprint)
+	profile := &activeTaskProfile{userID: userID, username: username, fingerprint: fingerprint, lastSeen: now}
+	profile.element = m.profileLRU.PushBack(key)
+	m.profiles[key] = profile
+}
+
+func (m *ActiveTaskSlotManager) pruneLocalActivityLocked(cutoff time.Time) {
+	for element := m.profileLRU.Front(); element != nil; {
+		next := element.Next()
+		key := element.Value.(string)
+		profile := m.profiles[key]
+		if profile == nil || profile.lastSeen.Before(cutoff) {
+			delete(m.profiles, key)
+			m.profileLRU.Remove(element)
+		}
+		element = next
+	}
+}
+
+func (m *ActiveTaskSlotManager) removeOldestLocalActivityLocked(userID int) bool {
+	for element := m.profileLRU.Front(); element != nil; element = element.Next() {
+		key := element.Value.(string)
+		profile := m.profiles[key]
+		if profile != nil && (userID == 0 || profile.userID == userID) {
+			delete(m.profiles, key)
+			m.profileLRU.Remove(element)
+			return true
+		}
+	}
+	return false
 }
 
 func (m *ActiveTaskSlotManager) userProfileCountLocked(userID int) int {
@@ -449,6 +614,114 @@ func (m *ActiveTaskSlotManager) Stats() ActiveTaskStats {
 	m.expireLocked(time.Now())
 	rank := m.rankLocked()
 	return ActiveTaskStats{GlobalActiveSlots: len(m.slots), GlobalLimit: m.globalLimit, UserLimit: m.userLimit, LeaseSeconds: int64(m.lease.Seconds()), ActiveUsers: len(m.userTokens), Rank: rank}
+}
+
+// ActivityStats reports short-lived conversational activity rather than
+// asynchronous task capacity. The two concepts share limits/configuration but
+// never share reservations or lifecycle state.
+func (m *ActiveTaskSlotManager) ActivityStats(window time.Duration) ActiveTaskStats {
+	if window <= 0 {
+		window = defaultActiveTaskWindow
+	}
+	if window > maxActiveTaskActivityWindow {
+		window = maxActiveTaskActivityWindow
+	}
+	if m.usesRedis() {
+		stats, err := m.redisActivityStats(window)
+		if err == nil {
+			return stats
+		}
+		return ActiveTaskStats{GlobalLimit: m.globalLimit, UserLimit: m.userLimit, LeaseSeconds: int64(defaultActiveTaskWindow.Seconds()), WindowSeconds: int64(window.Seconds())}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.localActivityStatsLocked(window)
+}
+
+func (m *ActiveTaskSlotManager) localActivityStatsLocked(window time.Duration) ActiveTaskStats {
+	now := time.Now()
+	m.pruneLocalActivityLocked(now.Add(-maxActiveTaskActivityWindow))
+	cutoff := now.Add(-window)
+	counts := make(map[int]ActiveTaskUserCount)
+	total := 0
+	for _, profile := range m.profiles {
+		if profile.lastSeen.Before(cutoff) {
+			continue
+		}
+		entry := counts[profile.userID]
+		entry.UserID = profile.userID
+		entry.Username = profile.username
+		entry.ActiveSlots++
+		counts[profile.userID] = entry
+		total++
+	}
+	return m.buildActivityStats(total, counts, window)
+}
+
+func (m *ActiveTaskSlotManager) redisActivityStats(window time.Duration) (ActiveTaskStats, error) {
+	ctx := context.Background()
+	now := time.Now()
+	members, err := common.RDB.ZRangeByScore(ctx, activeTaskActivityGlobalKey, &redis.ZRangeBy{
+		Min: strconv.FormatInt(now.Add(-window).Unix(), 10),
+		Max: "+inf",
+	}).Result()
+	if err != nil {
+		return ActiveTaskStats{}, err
+	}
+	counts := make(map[int]ActiveTaskUserCount)
+	total := 0
+	if len(members) > 0 {
+		keys := make([]string, 0, len(members))
+		for _, member := range members {
+			keys = append(keys, activeTaskActivityMetaPrefix+member)
+		}
+		values, err := common.RDB.MGet(ctx, keys...).Result()
+		if err != nil {
+			return ActiveTaskStats{}, err
+		}
+		for _, value := range values {
+			payload, ok := value.(string)
+			if !ok {
+				continue
+			}
+			parts := strings.SplitN(payload, "|", 2)
+			userID, err := strconv.Atoi(parts[0])
+			if err != nil || userID <= 0 {
+				continue
+			}
+			entry := counts[userID]
+			entry.UserID = userID
+			if len(parts) == 2 {
+				entry.Username = parts[1]
+			}
+			entry.ActiveSlots++
+			counts[userID] = entry
+			total++
+		}
+	}
+	return m.buildActivityStats(total, counts, window), nil
+}
+
+func (m *ActiveTaskSlotManager) buildActivityStats(total int, counts map[int]ActiveTaskUserCount, window time.Duration) ActiveTaskStats {
+	rank := make([]ActiveTaskUserCount, 0, len(counts))
+	for _, entry := range counts {
+		rank = append(rank, entry)
+	}
+	sort.Slice(rank, func(i, j int) bool {
+		if rank[i].ActiveSlots == rank[j].ActiveSlots {
+			return rank[i].UserID < rank[j].UserID
+		}
+		return rank[i].ActiveSlots > rank[j].ActiveSlots
+	})
+	return ActiveTaskStats{
+		GlobalActiveSlots: total,
+		GlobalLimit:       m.globalLimit,
+		UserLimit:         m.userLimit,
+		LeaseSeconds:      int64(defaultActiveTaskWindow.Seconds()),
+		WindowSeconds:     int64(window.Seconds()),
+		ActiveUsers:       len(rank),
+		Rank:              rank,
+	}
 }
 
 func (m *ActiveTaskSlotManager) redisStats() (ActiveTaskStats, error) {
@@ -507,6 +780,10 @@ func activeTaskRedisUserKey(userID int) string {
 	return "active_task_slots:user:" + strconv.Itoa(userID)
 }
 
+func activeTaskActivityUserKey(userID int) string {
+	return activeTaskActivityUserPrefix + strconv.Itoa(userID)
+}
+
 func activeTaskRedisSlotKey(token string) string { return activeTaskRedisSlotPrefix + token }
 
 func activeTaskRedisTaskKey(taskID string) string { return activeTaskRedisTaskPrefix + taskID }
@@ -531,10 +808,16 @@ func (m *ActiveTaskSlotManager) rankLocked() []ActiveTaskUserCount {
 }
 
 func (m *ActiveTaskSlotManager) SnapshotHighActivity() []HighActiveTaskRecord {
-	stats := m.Stats()
+	stats := m.ActivityStats(activeTaskHistoryWindow)
 	now := common.GetTimestamp()
 	records := make([]HighActiveTaskRecord, 0, len(stats.Rank))
 	for _, entry := range stats.Rank {
+		if entry.ActiveSlots < activeTaskHistoryThreshold {
+			continue
+		}
+		if IsAdmin(entry.UserID) {
+			continue
+		}
 		records = append(records, HighActiveTaskRecord{CreatedAt: now, UserID: entry.UserID, Username: entry.Username, ActiveSlots: entry.ActiveSlots, GlobalActiveSlots: stats.GlobalActiveSlots, GlobalLimit: stats.GlobalLimit, UserLimit: stats.UserLimit})
 	}
 	return records
@@ -556,25 +839,33 @@ func cloneActiveTaskSlot(slot *ActiveTaskSlot) *ActiveTaskSlot {
 	return &copy
 }
 
-// activeTaskSimHash is a true 64-bit SimHash. It tokenizes a bounded request
-// prefix, hashes each feature independently, and votes per bit. The retained
-// profile key uses the high 48 bits as a coarse level; callers retain the full
-// hash for future finer-grained comparisons without persisting request content.
+// activeTaskSimHash preserves the legacy activity-slot meaning: the raw
+// request body is split with strings.Fields, every token has equal weight, and
+// a process-local random salt prevents retained fingerprints from being useful
+// across restarts. modelName is used only when the request body is unavailable.
 func activeTaskSimHash(modelName string, requestBody []byte) uint64 {
-	const maxBytes = 64 * 1024
-	if len(requestBody) > maxBytes {
-		requestBody = requestBody[:maxBytes]
+	text := string(requestBody)
+	if text == "" {
+		text = modelName
 	}
-	text := modelName + " " + string(requestBody)
+	tokens := strings.Fields(text)
+	if len(tokens) == 0 {
+		return 0
+	}
 	weights := [64]int{}
-	feature := strings.Builder{}
-	addFeature := func() {
-		if feature.Len() == 0 {
-			return
-		}
-		h := fnv.New64a()
-		_, _ = h.Write([]byte(feature.String()))
-		value := h.Sum64()
+	for _, token := range tokens {
+		h := sha1.New()
+		_, _ = h.Write(activeTaskSimHashSalt[:])
+		_, _ = h.Write([]byte(token))
+		sum := h.Sum(nil)
+		value := uint64(sum[0]) |
+			uint64(sum[1])<<8 |
+			uint64(sum[2])<<16 |
+			uint64(sum[3])<<24 |
+			uint64(sum[4])<<32 |
+			uint64(sum[5])<<40 |
+			uint64(sum[6])<<48 |
+			uint64(sum[7])<<56
 		for bit := 0; bit < 64; bit++ {
 			if value&(uint64(1)<<bit) != 0 {
 				weights[bit]++
@@ -582,19 +873,7 @@ func activeTaskSimHash(modelName string, requestBody []byte) uint64 {
 				weights[bit]--
 			}
 		}
-		feature.Reset()
 	}
-	for _, r := range strings.ToLower(text) {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_' || r == '-' {
-			feature.WriteRune(r)
-			if feature.Len() >= 64 {
-				addFeature()
-			}
-		} else {
-			addFeature()
-		}
-	}
-	addFeature()
 	var result uint64
 	for bit, weight := range weights {
 		if weight >= 0 {

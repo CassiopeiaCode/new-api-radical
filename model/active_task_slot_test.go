@@ -48,6 +48,55 @@ func TestActiveTaskSlotsExpireAndBoundProfiles(t *testing.T) {
 	)
 }
 
+func TestActiveTaskActivityIsSeparateFromAsyncSlots(t *testing.T) {
+	manager := newActiveTaskSlotManager(10, 10, time.Minute)
+	require.NoError(t, manager.RecordActivity(1, "one", "gpt-test", []byte(`{"messages":[{"content":"hello world"}]}`)))
+	require.NoError(t, manager.RecordActivity(1, "one", "gpt-test", []byte(`{"messages":[{"content":"hello world"}]}`)))
+
+	activity := manager.ActivityStats(30 * time.Second)
+	require.Equal(t, 1, activity.GlobalActiveSlots)
+	require.Equal(t, 1, activity.ActiveUsers)
+	require.Equal(t, 1, activity.Rank[0].ActiveSlots)
+	require.Equal(t, 0, manager.Stats().GlobalActiveSlots)
+
+	slot, err := manager.Acquire(1, "one", "video-model", []byte(`{"prompt":"video"}`))
+	require.NoError(t, err)
+	require.Equal(t, 1, manager.Stats().GlobalActiveSlots)
+	require.Equal(t, 1, manager.ActivityStats(30*time.Second).GlobalActiveSlots)
+	require.True(t, manager.Release(slot.Token))
+}
+
+func TestActiveTaskActivitySupportsLegacyQueryWindows(t *testing.T) {
+	manager := newActiveTaskSlotManager(10, 10, time.Minute)
+	require.NoError(t, manager.RecordActivity(1, "one", "gpt-test", []byte(`{"messages":[{"content":"hello"}]}`)))
+
+	manager.mu.Lock()
+	for _, profile := range manager.profiles {
+		profile.lastSeen = time.Now().Add(-30 * time.Minute)
+	}
+	manager.mu.Unlock()
+
+	require.Equal(t, 0, manager.ActivityStats(30*time.Second).GlobalActiveSlots)
+	require.Equal(t, 1, manager.ActivityStats(time.Hour).GlobalActiveSlots)
+}
+
+func TestActiveTaskActivityPathMatching(t *testing.T) {
+	for _, path := range []string{
+		"/v1/chat/completions",
+		"/chat/completions",
+		"/v1/completions",
+		"/v1/responses",
+		"/v1/responses/compact",
+		"/v1/messages",
+		"/v1beta/models/gemini-2.5-flash:generateContent",
+	} {
+		require.True(t, isActiveTaskActivityPath(path), path)
+	}
+	for _, path := range []string{"/v1/embeddings", "/v1/images/generations"} {
+		require.False(t, isActiveTaskActivityPath(path), path)
+	}
+}
+
 func TestHighActiveTaskRecordAutoMigration(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:active-task-%d?mode=memory&cache=shared", time.Now().UnixNano())), &gorm.Config{})
 	require.NoError(t, err)

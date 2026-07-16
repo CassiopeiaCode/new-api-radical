@@ -6,10 +6,17 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import React, { useEffect, useState } from 'react';
-import { Button, Card, Table } from '@douyinfe/semi-ui';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Button, Card, Select, Table } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../helpers';
+
+const ACTIVITY_WINDOWS = [30, 60, 300, 600, 1800, 3600];
+
+function formatActivityWindow(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  return `${seconds / 60}m`;
+}
 
 function normalizeDateLocale(language) {
   const compact = String(language || '')
@@ -33,11 +40,14 @@ export default function ActiveTasks() {
   const [stats, setStats] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
-  const load = async () => {
+  const [windowSeconds, setWindowSeconds] = useState(30);
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const [s, h] = await Promise.all([
-        API.get('/api/active-task/stats'),
+        API.get('/api/active-task/stats', {
+          params: { window: windowSeconds, limit: 200 },
+        }),
         API.get('/api/active-task/history?p=1&page_size=100'),
       ]);
       setStats(s.data?.data || null);
@@ -47,10 +57,10 @@ export default function ActiveTasks() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [t, windowSeconds]);
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
   const columns = [
     { title: t('User'), dataIndex: 'username' },
     { title: t('User ID'), dataIndex: 'user_id' },
@@ -72,9 +82,21 @@ export default function ActiveTasks() {
       <Card
         title={t('Active tasks')}
         headerExtraContent={
-          <Button loading={loading} onClick={load}>
-            {t('Refresh')}
-          </Button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>{t('Activity window')}</span>
+            <Select
+              value={windowSeconds}
+              onChange={(value) => setWindowSeconds(Number(value))}
+              optionList={ACTIVITY_WINDOWS.map((seconds) => ({
+                value: seconds,
+                label: formatActivityWindow(seconds),
+              }))}
+              style={{ width: 88 }}
+            />
+            <Button loading={loading} onClick={load}>
+              {t('Refresh')}
+            </Button>
+          </div>
         }
       >
         <p>

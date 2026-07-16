@@ -5186,6 +5186,7 @@
     "Current usage": "Current usage",
     "Active task history": "Active task history",
     "Global slots": "Global slots",
-    "Failed to load active tasks": "Failed to load active tasks"
+    "Failed to load active tasks": "Failed to load active tasks",
+    "Activity window": "Activity window"
   }
 }

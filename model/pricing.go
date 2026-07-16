@@ -2,8 +2,8 @@ package model
 
 import (
 	"fmt"
+	"sort"
 	"strings"
-
 	"sync"
 	"time"
 
@@ -177,6 +177,57 @@ func appendPricingEndpoint(endpoints []string, endpoint string) []string {
 	return append(endpoints, endpoint)
 }
 
+// canonicalizePricingVendors collapses historical duplicate vendor rows for
+// the pricing response only. It leaves the database untouched and remaps every
+// old ID to a stable canonical ID (the lowest ID for a normalized name).
+func canonicalizePricingVendors(vendorMap map[int]*Vendor) (map[int]int, []PricingVendor) {
+	ids := make([]int, 0, len(vendorMap))
+	for id := range vendorMap {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	aliases := make(map[int]int, len(ids))
+	canonicalByName := make(map[string]int, len(ids))
+	canonicalVendors := make(map[int]PricingVendor, len(ids))
+	for _, id := range ids {
+		vendor := vendorMap[id]
+		if vendor == nil {
+			continue
+		}
+		nameKey := strings.ToLower(strings.TrimSpace(vendor.Name))
+		canonicalID, exists := canonicalByName[nameKey]
+		if !exists || nameKey == "" {
+			canonicalID = id
+			canonicalByName[nameKey] = canonicalID
+			canonicalVendors[canonicalID] = PricingVendor{
+				ID:          canonicalID,
+				Name:        strings.TrimSpace(vendor.Name),
+				Description: vendor.Description,
+				Icon:        vendor.Icon,
+			}
+		} else {
+			canonical := canonicalVendors[canonicalID]
+			if canonical.Description == "" {
+				canonical.Description = vendor.Description
+			}
+			if canonical.Icon == "" {
+				canonical.Icon = vendor.Icon
+			}
+			canonicalVendors[canonicalID] = canonical
+		}
+		aliases[id] = canonicalID
+	}
+
+	list := make([]PricingVendor, 0, len(canonicalVendors))
+	for _, id := range ids {
+		if vendor, ok := canonicalVendors[id]; ok {
+			list = append(list, vendor)
+		}
+	}
+	return aliases, list
+}
+
 func updatePricing() {
 	//modelRatios := common.GetModelRatios()
 	enableAbilities, err := GetAllEnableAbilityWithChannels()
@@ -247,16 +298,10 @@ func updatePricing() {
 	// 初始化默认供应商映射
 	initDefaultVendorMapping(metaMap, vendorMap, enableAbilities)
 
-	// 构建对前端友好的供应商列表
-	vendorsList = make([]PricingVendor, 0, len(vendorMap))
-	for _, v := range vendorMap {
-		vendorsList = append(vendorsList, PricingVendor{
-			ID:          v.Id,
-			Name:        v.Name,
-			Description: v.Description,
-			Icon:        v.Icon,
-		})
-	}
+	// 构建对前端友好的供应商列表。历史上可能存在同名、不同 ID
+	// 的供应商记录；仅在响应缓存中归并，不修改数据库或模型元数据。
+	vendorAliases, canonicalVendors := canonicalizePricingVendors(vendorMap)
+	vendorsList = canonicalVendors
 
 	modelGroupsMap := make(map[string]*types.Set[string])
 
@@ -371,7 +416,7 @@ func updatePricing() {
 			pricing.Description = meta.Description
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags
-			pricing.VendorID = meta.VendorID
+			pricing.VendorID = vendorAliases[meta.VendorID]
 		}
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		if findPrice {
