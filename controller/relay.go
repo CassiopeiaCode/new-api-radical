@@ -553,45 +553,11 @@ func RelayTask(c *gin.Context) {
 		return
 	}
 
-	// Async/video tasks outlive the submit HTTP request. Reserve a real slot
-	// before selecting an upstream channel, then bind it to the public task ID
-	// after the local task row is persisted. Every pre-persist failure releases
-	// the reservation through the deferred rollback below.
-	var activeTaskSlotToken string
-	if bodyStorage, bodyErr := common.GetBodyStorage(c); bodyErr == nil {
-		requestBody, readErr := bodyStorage.Bytes()
-		if readErr != nil {
-			respondTaskError(c, service.TaskErrorWrapperLocal(readErr, "read_request_body_failed", http.StatusBadRequest))
-			return
-		}
-		slot, acquireErr := model.GetActiveTaskSlotManager().Acquire(
-			relayInfo.UserId,
-			c.GetString("username"),
-			relayInfo.OriginModelName,
-			requestBody,
-		)
-		if acquireErr != nil {
-			statusCode := http.StatusInternalServerError
-			if errors.Is(acquireErr, model.ErrActiveTaskGlobalLimit) || errors.Is(acquireErr, model.ErrActiveTaskUserLimit) {
-				statusCode = http.StatusTooManyRequests
-			}
-			respondTaskError(c, service.TaskErrorWrapperLocal(acquireErr, "active_task_slot_unavailable", statusCode))
-			return
-		}
-		activeTaskSlotToken = slot.Token
-	} else {
-		respondTaskError(c, service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest))
-		return
-	}
-
 	var result *relay.TaskSubmitResult
 	var taskErr *dto.TaskError
 	defer func() {
 		if taskErr != nil && relayInfo.Billing != nil {
 			relayInfo.Billing.Refund(c)
-		}
-		if activeTaskSlotToken != "" {
-			model.GetActiveTaskSlotManager().Release(activeTaskSlotToken)
 		}
 	}()
 
@@ -710,12 +676,6 @@ func RelayTask(c *gin.Context) {
 		task.Action = relayInfo.Action
 		if insertErr := task.Insert(); insertErr != nil {
 			common.SysError("insert task error: " + insertErr.Error())
-		} else if model.GetActiveTaskSlotManager().AttachTaskID(activeTaskSlotToken, task.TaskID) {
-			// Ownership transferred to the task lifecycle. Terminal polling,
-			// timeout cleanup, or lease expiry will release it idempotently.
-			activeTaskSlotToken = ""
-		} else {
-			common.SysError("attach active task slot failed for task " + task.TaskID)
 		}
 	}
 

@@ -30,7 +30,7 @@ type epayReconcileHandler struct{}
 
 func (epayReconcileHandler) Type() string { return model.SystemTaskTypeEpayReconcile }
 func (epayReconcileHandler) Enabled() bool {
-	return common.GetEnvOrDefaultBool("EPAY_ORDER_RECONCILE_ENABLED", false)
+	return common.GetEnvOrDefaultBool("EPAY_ORDER_RECONCILE_ENABLED", true)
 }
 func (epayReconcileHandler) Interval() time.Duration { return time.Minute }
 func (epayReconcileHandler) NewPayload() any         { return nil }

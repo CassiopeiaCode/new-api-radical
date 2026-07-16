@@ -10,64 +10,28 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestActiveTaskSlotsEnforceLimitsAndReleaseIdempotently(t *testing.T) {
-	manager := newActiveTaskSlotManager(2, 1, time.Hour)
-	first, err := manager.Acquire(1, "one", "video-model", []byte(`{"prompt":"one"}`))
-	require.NoError(t, err)
-	_, err = manager.Acquire(1, "one", "video-model", []byte(`{"prompt":"two"}`))
-	require.ErrorIs(t, err, ErrActiveTaskUserLimit)
+func TestActiveTaskSimHashSlotsMergeAndRespectLimits(t *testing.T) {
+	manager := newActiveTaskSlotManager(2, 1)
+	require.NoError(t, manager.RecordActivity(1, "one", "gpt-test", []byte("hello world")))
+	require.NoError(t, manager.RecordActivity(1, "one", "gpt-test", []byte("hello world")))
 
-	second, err := manager.Acquire(2, "two", "video-model", []byte(`{"prompt":"three"}`))
-	require.NoError(t, err)
-	_, err = manager.Acquire(3, "three", "video-model", []byte(`{"prompt":"four"}`))
-	require.ErrorIs(t, err, ErrActiveTaskGlobalLimit)
+	stats := manager.ActivityStats(30 * time.Second)
+	require.Equal(t, 1, stats.GlobalActiveSlots)
+	require.Equal(t, 1, stats.ActiveUsers)
+	require.Equal(t, 1, stats.Rank[0].ActiveSlots)
 
-	require.True(t, manager.AttachTaskID(first.Token, "task_first"))
-	require.True(t, manager.ReleaseByTaskID("task_first"))
-	require.False(t, manager.ReleaseByTaskID("task_first"))
-	require.True(t, manager.Release(second.Token))
-	require.Equal(t, 0, manager.Stats().GlobalActiveSlots)
-}
-
-func TestActiveTaskSlotsExpireAndBoundProfiles(t *testing.T) {
-	manager := newActiveTaskSlotManager(10, 10, time.Minute)
-	slot, err := manager.Acquire(1, "one", "video-model", []byte(`{"prompt":"stable phrase"}`))
-	require.NoError(t, err)
-
-	manager.mu.Lock()
-	manager.slots[slot.Token].ExpiresAt = time.Now().Add(-time.Second)
-	manager.mu.Unlock()
-	require.Equal(t, 1, manager.SweepExpired())
-	require.Equal(t, 0, manager.Stats().GlobalActiveSlots)
-
-	// Similar normalized input produces a deterministic SimHash; no request
-	// body is retained in the profile map.
-	require.Equal(t,
-		activeTaskSimHash("video-model", []byte(`{"prompt":"hello world"}`)),
-		activeTaskSimHash("video-model", []byte(`{"prompt":"hello world"}`)),
-	)
-}
-
-func TestActiveTaskActivityIsSeparateFromAsyncSlots(t *testing.T) {
-	manager := newActiveTaskSlotManager(10, 10, time.Minute)
-	require.NoError(t, manager.RecordActivity(1, "one", "gpt-test", []byte(`{"messages":[{"content":"hello world"}]}`)))
-	require.NoError(t, manager.RecordActivity(1, "one", "gpt-test", []byte(`{"messages":[{"content":"hello world"}]}`)))
-
-	activity := manager.ActivityStats(30 * time.Second)
-	require.Equal(t, 1, activity.GlobalActiveSlots)
-	require.Equal(t, 1, activity.ActiveUsers)
-	require.Equal(t, 1, activity.Rank[0].ActiveSlots)
-	require.Equal(t, 0, manager.Stats().GlobalActiveSlots)
-
-	slot, err := manager.Acquire(1, "one", "video-model", []byte(`{"prompt":"video"}`))
-	require.NoError(t, err)
-	require.Equal(t, 1, manager.Stats().GlobalActiveSlots)
+	// A second distinct request for the same user replaces the user's oldest
+	// slot when the legacy per-user LRU limit is reached.
+	require.NoError(t, manager.RecordActivity(1, "one", "gpt-test", []byte("entirely different request body")))
 	require.Equal(t, 1, manager.ActivityStats(30*time.Second).GlobalActiveSlots)
-	require.True(t, manager.Release(slot.Token))
+
+	// Another user can consume the remaining global temporary slot.
+	require.NoError(t, manager.RecordActivity(2, "two", "gpt-test", []byte("another distinct request")))
+	require.Equal(t, 2, manager.ActivityStats(30*time.Second).GlobalActiveSlots)
 }
 
 func TestActiveTaskActivitySupportsLegacyQueryWindows(t *testing.T) {
-	manager := newActiveTaskSlotManager(10, 10, time.Minute)
+	manager := newActiveTaskSlotManager(10, 10)
 	require.NoError(t, manager.RecordActivity(1, "one", "gpt-test", []byte(`{"messages":[{"content":"hello"}]}`)))
 
 	manager.mu.Lock()
@@ -92,7 +56,7 @@ func TestActiveTaskActivityPathMatching(t *testing.T) {
 	} {
 		require.True(t, isActiveTaskActivityPath(path), path)
 	}
-	for _, path := range []string{"/v1/embeddings", "/v1/images/generations"} {
+	for _, path := range []string{"/v1/embeddings", "/v1/images/generations", "/v1/videos"} {
 		require.False(t, isActiveTaskActivityPath(path), path)
 	}
 }

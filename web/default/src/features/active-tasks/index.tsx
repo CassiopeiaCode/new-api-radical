@@ -17,7 +17,7 @@ type Stats = {
   global_active_slots: number;
   global_limit: number;
   user_limit: number;
-  lease_seconds: number;
+  window_seconds: number;
   active_users: number;
   rank: Array<{ user_id: number; username: string; active_slots: number }>;
 };

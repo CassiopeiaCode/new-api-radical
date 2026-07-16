@@ -412,12 +412,7 @@ func (t *Task) Snapshot() taskSnapshot {
 }
 
 func (Task *Task) Update() error {
-	var err error
-	err = DB.Save(Task).Error
-	if err == nil && (Task.Status == TaskStatusSuccess || Task.Status == TaskStatusFailure) {
-		GetActiveTaskSlotManager().ReleaseByTaskID(Task.TaskID)
-	}
-	return err
+	return DB.Save(Task).Error
 }
 
 func (t *Task) UpdateQuota() error {
@@ -436,11 +431,7 @@ func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
 	if result.Error != nil {
 		return false, result.Error
 	}
-	won := result.RowsAffected > 0
-	if won && (t.Status == TaskStatusSuccess || t.Status == TaskStatusFailure) {
-		GetActiveTaskSlotManager().ReleaseByTaskID(t.TaskID)
-	}
-	return won, nil
+	return result.RowsAffected > 0, nil
 }
 
 // TaskBulkUpdate performs an unconditional bulk UPDATE by upstream task_id strings.
