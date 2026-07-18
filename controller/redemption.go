@@ -19,7 +19,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const redemptionBulkCreateMaxCount = 100000
+const (
+	redemptionBulkCreateMaxCount = 100000
+	redemptionKeyLength          = 32
+)
 
 func GetAllRedemptions(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
@@ -110,8 +113,9 @@ func AddRedemption(c *gin.Context) {
 			common.ApiError(c, errors.New("random quota range is smaller than requested count"))
 			return
 		}
-		// The persisted key column is char(32). Keep room for a signed int64
-		// suffix so prefix-based random codes remain portable across databases.
+		// The persisted key column is char(32). Random-quota codes keep the same
+		// total length as ordinary codes, with the configured prefix occupying
+		// part of those 32 characters.
 		if utf8.RuneCountInString(req.RandomPrefix) > 12 {
 			common.ApiError(c, errors.New("random_prefix is too long"))
 			return
@@ -136,7 +140,11 @@ func AddRedemption(c *gin.Context) {
 			}
 			seen[value] = struct{}{}
 			quota = int(value)
-			key = req.RandomPrefix + strconv.FormatInt(value, 10)
+			key, randomErr = generateRandomRedemptionKey(req.RandomPrefix)
+			if randomErr != nil {
+				common.ApiError(c, randomErr)
+				return
+			}
 		}
 		cleanRedemption := model.Redemption{
 			UserId:      c.GetInt("id"),
@@ -176,6 +184,18 @@ func AddRedemption(c *gin.Context) {
 		"data":    keys,
 	})
 	return
+}
+
+func generateRandomRedemptionKey(prefix string) (string, error) {
+	prefixLength := utf8.RuneCountInString(prefix)
+	if prefixLength >= redemptionKeyLength {
+		return "", errors.New("random redemption prefix leaves no room for a random suffix")
+	}
+	suffix, err := common.GenerateRandomCharsKey(redemptionKeyLength - prefixLength)
+	if err != nil {
+		return "", err
+	}
+	return prefix + suffix, nil
 }
 
 func cryptoRandInt64Inclusive(min, max int64) (int64, error) {
