@@ -503,16 +503,16 @@
 - 通过 `IFRAME_JWT_SECRET` 启用首页嵌入页面的 JWT 登录能力；未配置时不签发 JWT，首页 iframe 的其他能力保持不变。
 - iframe 需要认证时向父页面发送 `IFRAME_AUTH_REQUEST`。父页面只校验消息是否来自当前首页 iframe 的 `contentWindow`，不依赖 sandbox 下可能为 `null` 的 `event.origin`，也不按 iframe 域名做额外校验。
 - 只有通过窗口对象校验的请求才调用后端签发接口；iframe 不请求时不产生签名开销。父页面防止并发重复签发，并在异步请求完成后再次确认 iframe 窗口未被替换。
-- 后端使用现有 dashboard session 验证用户，采用 HS256 签发 60 秒有效的无状态 JWT。载荷仅包含与用户表一致的 `id`、`username`、`display_name`，以及 JWT 标准 `iat`、`exp` 字段。
+- 后端使用现有 dashboard session 验证用户，采用 HS256 签发 5 分钟有效的无状态 JWT。载荷仅包含与用户表一致的 `id`、`username`、`display_name`，以及 JWT 标准 `iat`、`exp` 字段。
 - 父页面通过 `IFRAME_AUTH_RESPONSE` 将 JWT 和原始 `requestId` 返回同一 iframe 窗口。JWT 不写入 URL、localStorage、数据库或日志，不提供消费和撤销接口。
 
 ### 配置 / API / UI
 
 - 环境变量：`IFRAME_JWT_SECRET`，建议使用至少 32 字节的随机值，并与 iframe 服务端验签配置保持一致。
-- API：`POST /api/iframe-jwt`，要求现有用户 session，通过关键接口限流保护；返回 token 和固定的 `expires_in: 60`。
+- API：`POST /api/iframe-jwt`，要求现有用户 session，通过关键接口限流保护；返回 token 和固定的 `expires_in: 300`。
 - `web/default` 与 `web/classic` 首页均实现相同消息协议；iframe 后端必须固定使用 HS256 和共享 secret 验签，并检查 `exp`。
 
 ### 迁移约束与验收
 
-- 验证未配置 secret、未登录、非首页 iframe 窗口请求、正常签发、并发重复请求、iframe 被替换和 60 秒过期路径。
+- 验证未配置 secret、未登录、非首页 iframe 窗口请求、正常签发、并发重复请求、iframe 被替换和 5 分钟过期路径。
 - 解码结果不得出现邮箱、角色、权限、额度、session、API token 或其他用户敏感字段。

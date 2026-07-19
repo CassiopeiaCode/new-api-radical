@@ -13,7 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const iframeJWTLifetime = 60 * time.Second
+const iframeJWTLifetime = 5 * time.Minute
 
 type iframeJWTClaims struct {
 	Id          int    `json:"id"`
