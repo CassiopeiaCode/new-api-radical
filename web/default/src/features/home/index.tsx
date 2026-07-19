@@ -24,6 +24,7 @@ import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
+import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { CTA, Features, Hero, HowItWorks, Stats } from './components'
@@ -32,6 +33,7 @@ import { useHomePageContent } from './hooks'
 export function Home() {
   const { i18n, t } = useTranslation()
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const iframeAuthPendingRef = useRef(false)
   const { resolvedTheme } = useTheme()
   const { auth } = useAuthStore()
   const isAuthenticated = !!auth.user
@@ -57,6 +59,52 @@ export function Home() {
       syncIframePreferences()
     }
   }, [isUrl, syncIframePreferences])
+
+  useEffect(() => {
+    if (!isUrl || !isAuthenticated) return
+
+    const handleIframeMessage = async (event: MessageEvent) => {
+      const iframeWindow = iframeRef.current?.contentWindow
+      if (
+        event.data?.type !== 'IFRAME_AUTH_REQUEST' ||
+        event.source !== iframeWindow ||
+        !iframeWindow ||
+        iframeAuthPendingRef.current
+      ) {
+        return
+      }
+
+      iframeAuthPendingRef.current = true
+      try {
+        const response = await api.post('/api/iframe-jwt', undefined, {
+          skipBusinessError: true,
+          skipErrorHandler: true,
+        })
+        const token = response.data?.data?.token
+        if (
+          token &&
+          iframeRef.current?.contentWindow === iframeWindow &&
+          event.source === iframeWindow
+        ) {
+          iframeWindow.postMessage(
+            {
+              type: 'IFRAME_AUTH_RESPONSE',
+              requestId: event.data.requestId,
+              token,
+            },
+            '*'
+          )
+        }
+      } catch {
+        // Keep the embedded page anonymous when JWT auth is unavailable.
+      } finally {
+        iframeAuthPendingRef.current = false
+      }
+    }
+
+    window.addEventListener('message', handleIframeMessage)
+    return () => window.removeEventListener('message', handleIframeMessage)
+  }, [isAuthenticated, isUrl])
 
   if (!isLoaded) {
     return (

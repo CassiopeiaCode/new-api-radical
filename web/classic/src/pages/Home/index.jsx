@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import {
   Button,
   Typography,
@@ -71,6 +71,8 @@ const Home = () => {
   const actualTheme = useActualTheme();
   const [homePageContentLoaded, setHomePageContentLoaded] = useState(false);
   const [homePageContent, setHomePageContent] = useState('');
+  const iframeRef = useRef(null);
+  const iframeAuthPendingRef = useRef(false);
   const [noticeVisible, setNoticeVisible] = useState(false);
   const isMobile = useIsMobile();
   const isDemoSiteMode = statusState?.status?.demo_site_enabled || false;
@@ -92,17 +94,6 @@ const Home = () => {
       }
       setHomePageContent(content);
       localStorage.setItem('home_page_content', content);
-
-      // 如果内容是 URL，则发送主题模式
-      if (data.startsWith('https://')) {
-        const iframe = document.querySelector('iframe');
-        if (iframe) {
-          iframe.onload = () => {
-            iframe.contentWindow.postMessage({ themeMode: actualTheme }, '*');
-            iframe.contentWindow.postMessage({ lang: i18n.language }, '*');
-          };
-        }
-      }
     } else {
       showError(message);
       setHomePageContent('加载首页内容失败...');
@@ -139,6 +130,47 @@ const Home = () => {
 
   useEffect(() => {
     displayHomePageContent().then();
+  }, []);
+
+  useEffect(() => {
+    const handleIframeMessage = async (event) => {
+      const iframeWindow = iframeRef.current?.contentWindow;
+      if (
+        event.data?.type !== 'IFRAME_AUTH_REQUEST' ||
+        event.source !== iframeWindow ||
+        !iframeWindow ||
+        iframeAuthPendingRef.current
+      ) {
+        return;
+      }
+
+      iframeAuthPendingRef.current = true;
+      try {
+        const response = await API.post('/api/iframe-jwt');
+        const token = response.data?.data?.token;
+        if (
+          token &&
+          iframeRef.current?.contentWindow === iframeWindow &&
+          event.source === iframeWindow
+        ) {
+          iframeWindow.postMessage(
+            {
+              type: 'IFRAME_AUTH_RESPONSE',
+              requestId: event.data.requestId,
+              token,
+            },
+            '*',
+          );
+        }
+      } catch {
+        // Keep the embedded page anonymous when JWT auth is unavailable.
+      } finally {
+        iframeAuthPendingRef.current = false;
+      }
+    };
+
+    window.addEventListener('message', handleIframeMessage);
+    return () => window.removeEventListener('message', handleIframeMessage);
   }, []);
 
   useEffect(() => {
@@ -338,8 +370,19 @@ const Home = () => {
         <div className='classic-page-fill overflow-x-hidden w-full'>
           {homePageContent.startsWith('https://') ? (
             <iframe
+              ref={iframeRef}
               src={homePageContent}
               className='w-full h-screen border-none'
+              onLoad={() => {
+                iframeRef.current?.contentWindow?.postMessage(
+                  { themeMode: actualTheme },
+                  '*',
+                );
+                iframeRef.current?.contentWindow?.postMessage(
+                  { lang: i18n.language },
+                  '*',
+                );
+              }}
             />
           ) : (
             <div
