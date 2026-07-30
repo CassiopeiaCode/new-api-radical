@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getSuccessRateDotClass } from '@/features/performance-metrics/lib/format'
+import { getPricingHealthTrendDotClass } from '@/features/performance-metrics/lib/format'
 import { cn } from '@/lib/utils'
 
 export type ModelPerfBadgeData = {
@@ -134,7 +134,7 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
                   ? index === 0
                     ? 'bg-muted-foreground/10'
                     : 'bg-muted-foreground/15'
-                  : getSuccessRateDotClass(rate)
+                  : getPricingHealthTrendDotClass(rate)
               )}
             />
           ))}

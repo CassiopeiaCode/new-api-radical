@@ -93,6 +93,19 @@ export function getSuccessRateDotClass(rate: number): string {
   return SUCCESS_RATE_DOT_CLASS[getSuccessRateLevel(rate)]
 }
 
+/**
+ * The compact 24h / 1h / 5m indicator in the pricing cards is intentionally
+ * less sensitive than the standard health displays. Its thresholds are each
+ * shifted down by ten percentage points: 90 / 80 / 60.
+ */
+export function getPricingHealthTrendDotClass(rate: number): string {
+  if (!Number.isFinite(rate)) return SUCCESS_RATE_DOT_CLASS.unknown
+  if (rate >= 90) return SUCCESS_RATE_DOT_CLASS.excellent
+  if (rate >= 80) return SUCCESS_RATE_DOT_CLASS.good
+  if (rate >= 60) return SUCCESS_RATE_DOT_CLASS.warning
+  return SUCCESS_RATE_DOT_CLASS.critical
+}
+
 export function getSuccessRateColor(rate: number): string {
   return SUCCESS_RATE_HEX_COLOR[getSuccessRateLevel(rate)]
 }
