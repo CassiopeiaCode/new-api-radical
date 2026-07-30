@@ -172,6 +172,8 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	})
 
 	models := make([]ModelSummary, 0, len(totals))
+	currentBucket := bucketStart(endTs)
+	bucketSeconds := perf_metrics_setting.GetBucketSeconds()
 	for name, total := range totals {
 		if total.requestCount == 0 {
 			continue
@@ -188,6 +190,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 			SuccessRate:        math.Round(successRate*100) / 100,
 			AvgTps:             math.Round(avgTps*100) / 100,
 			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 3),
+			HealthTrends:       healthTrends(modelBuckets[name], currentBucket, bucketSeconds),
 			RequestCount:       total.requestCount,
 		})
 	}
@@ -196,6 +199,37 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	})
 
 	return SummaryAllResult{Models: models}, nil
+}
+
+func healthTrends(buckets map[int64]counters, currentBucket int64, bucketSeconds int64) HealthTrends {
+	return HealthTrends{
+		Last24Hours:  windowSuccessRate(buckets, currentBucket, bucketSeconds, 24*time.Hour),
+		LastHour:     windowSuccessRate(buckets, currentBucket, bucketSeconds, time.Hour),
+		Last5Minutes: windowSuccessRate(buckets, currentBucket, bucketSeconds, 5*time.Minute),
+	}
+}
+
+func windowSuccessRate(buckets map[int64]counters, currentBucket int64, bucketSeconds int64, window time.Duration) *float64 {
+	windowSeconds := int64(window.Seconds())
+	if len(buckets) == 0 || bucketSeconds <= 0 || windowSeconds < bucketSeconds {
+		return nil
+	}
+
+	earliestBucket := currentBucket - windowSeconds + bucketSeconds
+	total := counters{}
+	for ts, value := range buckets {
+		if ts < earliestBucket || ts > currentBucket {
+			continue
+		}
+		total.requestCount += value.requestCount
+		total.successCount += value.successCount
+	}
+	if total.requestCount == 0 {
+		return nil
+	}
+
+	rate := math.Round(successRate(total)*100) / 100
+	return &rate
 }
 
 func mergeModelTotals(totals map[string]counters, modelName string, value counters) {

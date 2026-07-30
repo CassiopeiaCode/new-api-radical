@@ -49,6 +49,11 @@ export type PerfModelSummary = {
   success_rate: number
   avg_tps: number
   recent_success_rates?: number[]
+  health_trends?: {
+    last_24h: number | null
+    last_1h: number | null
+    last_5m: number | null
+  }
   request_count?: number
 }
 

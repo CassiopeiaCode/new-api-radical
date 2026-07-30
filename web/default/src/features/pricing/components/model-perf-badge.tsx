@@ -27,6 +27,11 @@ export type ModelPerfBadgeData = {
   success_rate: number
   avg_tps: number
   recent_success_rates?: number[]
+  health_trends?: {
+    last_24h: number | null
+    last_1h: number | null
+    last_5m: number | null
+  }
 }
 
 export interface ModelPerfBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -61,15 +66,32 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
 
   const { avg_latency_ms, avg_tps, success_rate } = props.perf
 
+  const healthTrends = props.perf.health_trends
   const recentRates =
     props.perf.recent_success_rates?.filter((rate) => Number.isFinite(rate)) ??
     []
-  const statusRates =
-    recentRates.length > 0 ? recentRates.slice(-3) : [success_rate]
-  const statusBars = [
-    ...Array(Math.max(0, 3 - statusRates.length)).fill(null),
-    ...statusRates,
+  const fallbackSource = recentRates.length > 0 ? recentRates : [success_rate]
+  const fallbackRates = [
+    ...Array(Math.max(0, 3 - fallbackSource.length)).fill(null),
+    ...fallbackSource.slice(-3),
   ].slice(-3)
+  const statusBars = healthTrends
+    ? [
+        { label: '24h', rate: healthTrends.last_24h },
+        { label: '1h', rate: healthTrends.last_1h },
+        { label: '5m', rate: healthTrends.last_5m },
+      ]
+    : fallbackRates.map((rate, index) => ({
+        label: ['24h', '1h', '5m'][index],
+        rate,
+      }))
+
+  const statusTitle = statusBars
+    .map(
+      ({ label, rate }) =>
+        `${label}: ${typeof rate === 'number' && Number.isFinite(rate) ? `${rate.toFixed(1)}%` : '—'}`
+    )
+    .join(' · ')
 
   return (
     <div
@@ -94,23 +116,21 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
           {formatCompactThroughput(avg_tps)}
         </div>
       </div>
-      <div
-        title={`${t('Success rate')}: ${success_rate.toFixed(1)}%`}
-        className='min-w-0'
-      >
+      <div title={`${t('Success rate')}: ${statusTitle}`} className='min-w-0'>
         <div className='text-muted-foreground/55 truncate text-[10px] leading-4'>
           {t('Status short')}
         </div>
         <div className='flex h-4 items-center justify-end gap-0.5'>
-          {statusBars.map((rate, index) => (
+          {statusBars.map(({ label, rate }, index) => (
             <span
-              key={`${index}-${rate ?? 'empty'}`}
+              key={label}
+              title={`${label}: ${typeof rate === 'number' && Number.isFinite(rate) ? `${rate.toFixed(1)}%` : '—'}`}
               className={cn(
                 'w-1 rounded-full',
                 index === 0 && 'h-2',
                 index === 1 && 'h-2.5',
                 index === 2 && 'h-3',
-                rate == null
+                typeof rate !== 'number' || !Number.isFinite(rate)
                   ? index === 0
                     ? 'bg-muted-foreground/10'
                     : 'bg-muted-foreground/15'

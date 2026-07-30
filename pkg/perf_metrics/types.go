@@ -48,12 +48,19 @@ type QueryResult struct {
 }
 
 type ModelSummary struct {
-	ModelName          string    `json:"model_name"`
-	AvgLatencyMs       int64     `json:"avg_latency_ms"`
-	SuccessRate        float64   `json:"success_rate"`
-	AvgTps             float64   `json:"avg_tps"`
-	RecentSuccessRates []float64 `json:"recent_success_rates,omitempty"`
-	RequestCount       int64     `json:"-"`
+	ModelName          string       `json:"model_name"`
+	AvgLatencyMs       int64        `json:"avg_latency_ms"`
+	SuccessRate        float64      `json:"success_rate"`
+	AvgTps             float64      `json:"avg_tps"`
+	RecentSuccessRates []float64    `json:"recent_success_rates,omitempty"`
+	HealthTrends       HealthTrends `json:"health_trends"`
+	RequestCount       int64        `json:"-"`
+}
+
+type HealthTrends struct {
+	Last24Hours  *float64 `json:"last_24h"`
+	LastHour     *float64 `json:"last_1h"`
+	Last5Minutes *float64 `json:"last_5m"`
 }
 
 type SummaryAllResult struct {
