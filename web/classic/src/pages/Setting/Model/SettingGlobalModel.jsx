@@ -71,7 +71,8 @@ const defaultGlobalSettingInputs = {
   'global.thinking_model_blacklist': '[]',
   'global.chat_completions_to_responses_policy': '{}',
   'general_setting.ping_interval_enabled': false,
-  'general_setting.ping_interval_seconds': 60,
+  'general_setting.ping_idle_threshold_seconds': 90,
+  'general_setting.ping_interval_seconds': 1,
 };
 
 export default function SettingGlobalModel(props) {
@@ -388,7 +389,22 @@ export default function SettingGlobalModel(props) {
                 </Col>
                 <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                   <Form.InputNumber
-                    label={t('Ping间隔（秒）')}
+                    label={t('空闲阈值（秒）')}
+                    field={'general_setting.ping_idle_threshold_seconds'}
+                    onChange={(value) =>
+                      setInputs({
+                        ...inputs,
+                        'general_setting.ping_idle_threshold_seconds': value,
+                      })
+                    }
+                    min={1}
+                    disabled={!inputs['general_setting.ping_interval_enabled']}
+                    extraText={t('持续多久没有收到流数据后开始发送Ping')}
+                  />
+                </Col>
+                <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                  <Form.InputNumber
+                    label={t('活跃Ping间隔（秒）')}
                     field={'general_setting.ping_interval_seconds'}
                     onChange={(value) =>
                       setInputs({
@@ -398,6 +414,9 @@ export default function SettingGlobalModel(props) {
                     }
                     min={1}
                     disabled={!inputs['general_setting.ping_interval_enabled']}
+                    extraText={t(
+                      '进入空闲状态后按此间隔发送Ping，收到真实流数据后重新等待空闲阈值',
+                    )}
                   />
                 </Col>
               </Row>

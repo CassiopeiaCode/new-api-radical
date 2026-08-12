@@ -95,6 +95,7 @@ const schema = z.object({
   }),
   general_setting: z.object({
     ping_interval_enabled: z.boolean(),
+    ping_idle_threshold_seconds: z.coerce.number().min(1),
     ping_interval_seconds: z.coerce.number().min(1),
   }),
 })
@@ -107,6 +108,7 @@ type FlatGlobalModelSettings = {
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'general_setting.ping_interval_enabled': boolean
+  'general_setting.ping_idle_threshold_seconds': number
   'general_setting.ping_interval_seconds': number
 }
 
@@ -125,6 +127,8 @@ const flattenGlobalValues = (
   ),
   'general_setting.ping_interval_enabled':
     values.general_setting.ping_interval_enabled,
+  'general_setting.ping_idle_threshold_seconds':
+    values.general_setting.ping_idle_threshold_seconds,
   'general_setting.ping_interval_seconds':
     values.general_setting.ping_interval_seconds,
 })
@@ -377,10 +381,10 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
 
           <FormField
             control={form.control}
-            name='general_setting.ping_interval_seconds'
+            name='general_setting.ping_idle_threshold_seconds'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Ping Interval (seconds)')}</FormLabel>
+                <FormLabel>{t('Idle Threshold (seconds)')}</FormLabel>
                 <FormControl>
                   <Input
                     type='number'
@@ -400,7 +404,40 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Recommended to keep this high to avoid upstream throttling.'
+                    'Start sending pings only after no stream data is received for this duration.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='general_setting.ping_interval_seconds'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Active Ping Interval (seconds)')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min={1}
+                    disabled={!pingEnabled}
+                    className='w-24'
+                    value={
+                      field.value === undefined || field.value === null
+                        ? ''
+                        : String(field.value)
+                    }
+                    onChange={(event) => field.onChange(event.target.value)}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'After the idle threshold, send pings at this interval until real stream data resumes.'
                   )}
                 </FormDescription>
                 <FormMessage />

@@ -396,7 +396,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	return targetConn, nil
 }
 
-func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.CancelFunc, <-chan struct{}) {
+func startPingKeepAlive(c *gin.Context, idleThreshold time.Duration, pingInterval time.Duration) (context.CancelFunc, <-chan struct{}) {
 	pingerCtx, stopPinger := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
@@ -413,8 +413,11 @@ func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.Can
 		if pingInterval <= 0 {
 			pingInterval = helper.DefaultPingInterval
 		}
+		if idleThreshold <= 0 {
+			idleThreshold = helper.DefaultPingIdleThreshold
+		}
 
-		ticker := time.NewTicker(pingInterval)
+		ticker := time.NewTimer(idleThreshold)
 		// 确保在任何情况下都清理ticker
 		defer func() {
 			ticker.Stop()
@@ -437,6 +440,7 @@ func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.Can
 					logger.LogDebug(c, "SSE ping error, stopping goroutine: %s", err.Error())
 					return
 				}
+				ticker.Reset(pingInterval)
 			// 收到退出信号
 			case <-pingerCtx.Done():
 				return
@@ -493,8 +497,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
 		if generalSettings.PingIntervalEnabled && !info.DisablePing {
+			idleThreshold := time.Duration(generalSettings.PingIdleThresholdSeconds) * time.Second
 			pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
-			stopPinger, pingerDone = startPingKeepAlive(c, pingInterval)
+			stopPinger, pingerDone = startPingKeepAlive(c, idleThreshold, pingInterval)
 			// 使用defer确保在任何情况下都能停止ping goroutine
 			defer func() {
 				if stopPinger != nil {

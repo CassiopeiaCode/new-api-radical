@@ -285,14 +285,17 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 
 // ---------- Ping tests ----------
 
-func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
+func TestStreamScannerHandler_ActiveStreamResetsIdleThreshold(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
+	oldThreshold := setting.PingIdleThresholdSeconds
 	oldSeconds := setting.PingIntervalSeconds
 	setting.PingIntervalEnabled = true
+	setting.PingIdleThresholdSeconds = 1
 	setting.PingIntervalSeconds = 1
 	t.Cleanup(func() {
 		setting.PingIntervalEnabled = oldEnabled
+		setting.PingIdleThresholdSeconds = oldThreshold
 		setting.PingIntervalSeconds = oldSeconds
 	})
 
@@ -332,18 +335,56 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 
 	body := recorder.Body.String()
 	pingCount := strings.Count(body, ": PING")
-	assert.GreaterOrEqual(t, pingCount, 1,
-		"expected at least 1 ping during slow stream with 1s interval; got %d", pingCount)
+	assert.Equal(t, 0, pingCount, "active stream data should keep resetting the idle threshold")
+}
+
+func TestStreamScannerHandler_PingStartsAfterIdleThreshold(t *testing.T) {
+	setting := operation_setting.GetGeneralSetting()
+	oldEnabled := setting.PingIntervalEnabled
+	oldThreshold := setting.PingIdleThresholdSeconds
+	oldSeconds := setting.PingIntervalSeconds
+	setting.PingIntervalEnabled = true
+	setting.PingIdleThresholdSeconds = 1
+	setting.PingIntervalSeconds = 1
+	t.Cleanup(func() {
+		setting.PingIntervalEnabled = oldEnabled
+		setting.PingIdleThresholdSeconds = oldThreshold
+		setting.PingIntervalSeconds = oldSeconds
+	})
+
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		time.Sleep(2200 * time.Millisecond)
+		fmt.Fprint(pw, "data: resumed\n")
+		time.Sleep(400 * time.Millisecond)
+		fmt.Fprint(pw, "data: [DONE]\n")
+	}()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	resp := &http.Response{Body: pr}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
+
+	body := recorder.Body.String()
+	assert.GreaterOrEqual(t, strings.Count(body, ": PING"), 2)
+	assert.Contains(t, body, "resumed")
 }
 
 func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
+	oldThreshold := setting.PingIdleThresholdSeconds
 	oldSeconds := setting.PingIntervalSeconds
 	setting.PingIntervalEnabled = true
+	setting.PingIdleThresholdSeconds = 1
 	setting.PingIntervalSeconds = 1
 	t.Cleanup(func() {
 		setting.PingIntervalEnabled = oldEnabled
+		setting.PingIdleThresholdSeconds = oldThreshold
 		setting.PingIntervalSeconds = oldSeconds
 	})
 

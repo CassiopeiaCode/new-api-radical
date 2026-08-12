@@ -11,9 +11,10 @@ const (
 )
 
 type GeneralSetting struct {
-	DocsLink            string `json:"docs_link"`
-	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
-	PingIntervalSeconds int    `json:"ping_interval_seconds"`
+	DocsLink                 string `json:"docs_link"`
+	PingIntervalEnabled      bool   `json:"ping_interval_enabled"`
+	PingIdleThresholdSeconds int    `json:"ping_idle_threshold_seconds"`
+	PingIntervalSeconds      int    `json:"ping_interval_seconds"`
 	// 当前站点额度展示类型：USD / CNY / TOKENS
 	QuotaDisplayType string `json:"quota_display_type"`
 	// 自定义货币符号，用于 CUSTOM 展示类型
@@ -26,7 +27,8 @@ type GeneralSetting struct {
 var generalSetting = GeneralSetting{
 	DocsLink:                   "https://docs.newapi.pro",
 	PingIntervalEnabled:        false,
-	PingIntervalSeconds:        60,
+	PingIdleThresholdSeconds:   90,
+	PingIntervalSeconds:        1,
 	QuotaDisplayType:           QuotaDisplayTypeUSD,
 	CustomCurrencySymbol:       "¤",
 	CustomCurrencyExchangeRate: 1.0,

@@ -25,6 +25,7 @@ import (
 const (
 	InitialScannerBufferSize    = 64 << 10  // 64KB (64*1024)
 	DefaultMaxScannerBufferSize = 128 << 20 // 64MB (64*1024*1024) default SSE buffer size
+	DefaultPingIdleThreshold    = 90 * time.Second
 	DefaultPingInterval         = 10 * time.Second
 	// streamWriteTimeout bounds a single blocked write to a slow client so the
 	// unconditional wg.Wait() in cleanup can always finish. Without it, a slow
@@ -89,14 +90,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
 
 	var (
-		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
-		scanner     = NewStreamScanner(resp.Body)
-		ticker      = time.NewTicker(streamingTimeout)
-		pingTicker  *time.Ticker
-		writeMutex  sync.Mutex     // Mutex to protect concurrent writes
-		wg          sync.WaitGroup // 用于等待所有 goroutine 退出
-		cleanupOnce sync.Once
-		stopOnce    sync.Once
+		stopChan     = make(chan bool, 3) // 增加缓冲区避免阻塞
+		scanner      = NewStreamScanner(resp.Body)
+		ticker       = time.NewTicker(streamingTimeout)
+		pingTimer    *time.Timer
+		pingActivity chan struct{}
+		writeMutex   sync.Mutex     // Mutex to protect concurrent writes
+		wg           sync.WaitGroup // 用于等待所有 goroutine 退出
+		cleanupOnce  sync.Once
+		stopOnce     sync.Once
 	)
 
 	stop := func() {
@@ -107,20 +109,26 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	generalSettings := operation_setting.GetGeneralSetting()
 	pingEnabled := generalSettings.PingIntervalEnabled && !info.DisablePing
+	pingIdleThreshold := time.Duration(generalSettings.PingIdleThresholdSeconds) * time.Second
+	if pingIdleThreshold <= 0 {
+		pingIdleThreshold = DefaultPingIdleThreshold
+	}
 	pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
 	if pingInterval <= 0 {
 		pingInterval = DefaultPingInterval
 	}
 
 	if pingEnabled {
-		pingTicker = time.NewTicker(pingInterval)
+		pingTimer = time.NewTimer(pingIdleThreshold)
+		pingActivity = make(chan struct{}, 1)
 	}
 
 	logger.LogDebug(c, "relay timeout seconds: %d", common.RelayTimeout)
 	logger.LogDebug(c, "relay max idle conns: %d", common.RelayMaxIdleConns)
 	logger.LogDebug(c, "relay max idle conns per host: %d", common.RelayMaxIdleConnsPerHost)
 	logger.LogDebug(c, "streaming timeout seconds: %d", int64(streamingTimeout.Seconds()))
-	logger.LogDebug(c, "ping interval seconds: %d", int64(pingInterval.Seconds()))
+	logger.LogDebug(c, "ping idle threshold seconds: %d", int64(pingIdleThreshold.Seconds()))
+	logger.LogDebug(c, "ping active interval seconds: %d", int64(pingInterval.Seconds()))
 
 	cleanup := func() {
 		cleanupOnce.Do(func() {
@@ -131,8 +139,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 
 			ticker.Stop()
-			if pingTicker != nil {
-				pingTicker.Stop()
+			if pingTimer != nil {
+				pingTimer.Stop()
 			}
 
 			wg.Wait()
@@ -154,7 +162,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
 	// Handle ping data sending with improved error handling
-	if pingEnabled && pingTicker != nil {
+	if pingEnabled && pingTimer != nil {
 		wg.Add(1)
 		gopool.Go(func() {
 			defer func() {
@@ -172,9 +180,19 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			pingTimeout := time.NewTimer(maxPingDuration)
 			defer pingTimeout.Stop()
 
+			resetPingTimer := func(delay time.Duration) {
+				if !pingTimer.Stop() {
+					select {
+					case <-pingTimer.C:
+					default:
+					}
+				}
+				pingTimer.Reset(delay)
+			}
+
 			for {
 				select {
-				case <-pingTicker.C:
+				case <-pingTimer.C:
 					var err error
 					func() {
 						writeMutex.Lock()
@@ -188,6 +206,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 						return
 					}
 					logger.LogDebug(c, "ping data sent")
+					pingTimer.Reset(pingInterval)
+				case <-pingActivity:
+					resetPingTimer(pingIdleThreshold)
 				case <-ctx.Done():
 					return
 				case <-stopChan:
@@ -245,6 +266,12 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		}()
 
 		for scanner.Scan() {
+			if pingActivity != nil {
+				select {
+				case pingActivity <- struct{}{}:
+				default:
+				}
+			}
 			// 检查是否需要停止
 			select {
 			case <-stopChan:
