@@ -74,6 +74,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
+		relayInfo   *relaycommon.RelayInfo
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
@@ -90,6 +91,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			if relayInfo != nil && relayInfo.IsStream && helper.HasTerminalOutput(c) {
+				return
+			}
+			if helper.HasKeepaliveOnly(c) || (relayInfo != nil && relayInfo.IsStream && helper.HasSemanticOutput(c)) {
+				if streamErr := helper.StreamError(c, relayFormat, newAPIError); streamErr != nil {
+					logger.LogError(c, "write final stream error failed: "+streamErr.Error())
+				}
+				return
+			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -117,11 +127,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
+	relayInfo, err = relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
 	}
+	helper.InitializeDownstreamStreamState(c)
 	if service.IsLeakProtectionBalancedEnabled(relayInfo.UserSetting) {
 		if blocked, reason := service.CheckRequestLeakProtection(request); blocked {
 			logger.LogWarn(c, "leak protection blocked request: "+reason)
@@ -212,6 +223,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		relayInfo.RetryIndex = retryParam.GetRetry()
+		relayInfo.ResetStreamAttempt()
+		helper.BeginStreamAttempt(c)
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
@@ -270,8 +283,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+		if helper.HasSemanticOutput(c) || !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
+		}
+		if helper.HasKeepaliveOnly(c) {
+			logger.LogWarn(c, fmt.Sprintf("retrying stream after keepalive-only attempt: channel=%d retry_index=%d error_code=%s", channel.Id, relayInfo.RetryIndex, newAPIError.GetErrorCode()))
 		}
 	}
 	if newAPIError == nil && channelRateLimited && !upstreamAttempted {

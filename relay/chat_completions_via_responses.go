@@ -164,6 +164,9 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 			return nil, newApiErr
 		}
+		if streamErr := helper.StreamAttemptError(c, info); streamErr != nil {
+			return nil, streamErr
+		}
 		return usage, nil
 	}
 	if upstreamStream {

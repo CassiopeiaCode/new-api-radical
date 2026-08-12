@@ -417,7 +417,7 @@ func startPingKeepAlive(c *gin.Context, triggerDelay time.Duration, pingInterval
 			triggerDelay = helper.DefaultPingTriggerDelay
 		}
 
-		ticker := time.NewTimer(triggerDelay)
+		ticker := time.NewTimer(helper.NextPingDelay(c, triggerDelay, pingInterval))
 		// 确保在任何情况下都清理ticker
 		defer func() {
 			ticker.Stop()

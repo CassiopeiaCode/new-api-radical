@@ -535,6 +535,12 @@
 - 客户端断开、请求结束、写入失败、上下文取消或最大保护时长到达时必须停止计时器和 goroutine。
 - Ping 与正常 SSE 数据继续使用同一写锁和写 deadline，不能交错破坏事件字节；协议明确不接受自定义 Ping 的适配器继续通过 `DisablePing` 禁用。
 - 首次 Ping 前应保留足够长的上游正常响应和透明重试窗口，因为一旦向下游写出任何保活字节，后续上游失败通常无法再切换为尚未开始的 HTTP 响应。触发后停止或降低 Ping 频率不能恢复这一能力，因此不应再根据真实数据重置保活阶段。
+- 仅向下游写过 `: PING` 注释、尚未写出任何模型文本、reasoning、tool call、usage、协议错误或终止事件时，上游 attempt 失败仍允许进入现有串行渠道重试循环。Ping 不得被视为语义响应。
+- 一旦写出任意有业务含义的流事件，禁止透明切换渠道，避免重复文本、冲突的工具调用、重复 usage 和跨模型状态不一致。
+- Ping 的触发状态与时间基准属于整个客户端请求，不能因切换渠道重新等待触发时间；每个上游 attempt 的 scanner、response body、context 和 Ping goroutine 必须完全退出后才能启动下一 attempt，禁止并行竞速或双 writer。
+- 只写过 Ping 且所有渠道最终失败时，HTTP 状态已无法更改，必须按客户端原始协议写入流内错误：OpenAI Chat 使用 `data: {"error":...}` 并结束流，Claude 使用 `event: error`，Responses 使用 `event: response.failed`。不得在 SSE 字节后混入普通 JSON HTTP 错误。
+- 每个 attempt 独立重置 `ReceivedResponseCount`、`StreamStatus` 和首响应计时；请求级 Ping/语义输出状态、使用渠道链和客户端连接跨 attempt 保留。失败 attempt 不得执行成功用量结算，最终成功 attempt 正常结算，全部失败沿用外层统一退款与错误处理。
+- Ping 后重试继续执行渠道错误日志、Recent Calls 错误记录、自动禁用判断、错误用量日志和 `重试：A->B` 链路日志，并额外记录不含请求内容的 keepalive-only retry 原因。
 
 ### 配置 / API / UI
 
@@ -552,3 +558,4 @@
 
 - 测试持续有数据的流不会推迟固定触发时间；触发后会按固定间隔连续发送；真实数据恢复后仍继续发送直到流结束。
 - 验证客户端断开、上游 EOF、`[DONE]`、写入失败和禁用 Ping 时无 goroutine、ticker/timer 或响应体泄漏。
+- 覆盖“仅 Ping 后首渠道失败、第二渠道成功”“仅 Ping 后所有渠道失败”“首个语义事件后失败不得切换”“失败 attempt 自动尾部 usage/DONE 被抑制”“重试不重置 75 秒触发基准”“两次 attempt 不存在重叠 Ping goroutine”等回归路径。

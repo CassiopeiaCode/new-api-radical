@@ -118,7 +118,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	if pingEnabled {
-		pingTimer = time.NewTimer(pingTriggerDelay)
+		pingTimer = time.NewTimer(NextPingDelay(c, pingTriggerDelay, pingInterval))
 	}
 
 	logger.LogDebug(c, "relay timeout seconds: %d", common.RelayTimeout)
@@ -317,6 +317,17 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	cleanup()
+	attemptFailedBeforeOutput := !HasSemanticOutput(c) &&
+		info.StreamStatus.EndReason != relaycommon.StreamEndReasonDone &&
+		!(info.StreamStatus.EndReason == relaycommon.StreamEndReasonHandlerStop && info.StreamStatus.EndError == nil)
+	if attemptFailedBeforeOutput {
+		SuppressAttemptSemanticOutput(c)
+	}
+	if info.ReceivedResponseCount == 0 && attemptFailedBeforeOutput {
+		if info.StreamStatus.EndError != nil {
+			info.StreamStatus.RecordError(info.StreamStatus.EndError.Error())
+		}
+	}
 	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
 		logger.LogInfo(c, fmt.Sprintf("stream ended: %s", info.StreamStatus.Summary()))
 	} else {
