@@ -285,17 +285,17 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 
 // ---------- Ping tests ----------
 
-func TestStreamScannerHandler_ActiveStreamResetsIdleThreshold(t *testing.T) {
+func TestStreamScannerHandler_ActiveStreamDoesNotDelayPingTrigger(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
-	oldThreshold := setting.PingIdleThresholdSeconds
+	oldTrigger := setting.PingTriggerSeconds
 	oldSeconds := setting.PingIntervalSeconds
 	setting.PingIntervalEnabled = true
-	setting.PingIdleThresholdSeconds = 1
+	setting.PingTriggerSeconds = 1
 	setting.PingIntervalSeconds = 1
 	t.Cleanup(func() {
 		setting.PingIntervalEnabled = oldEnabled
-		setting.PingIdleThresholdSeconds = oldThreshold
+		setting.PingTriggerSeconds = oldTrigger
 		setting.PingIntervalSeconds = oldSeconds
 	})
 
@@ -335,29 +335,29 @@ func TestStreamScannerHandler_ActiveStreamResetsIdleThreshold(t *testing.T) {
 
 	body := recorder.Body.String()
 	pingCount := strings.Count(body, ": PING")
-	assert.Equal(t, 0, pingCount, "active stream data should keep resetting the idle threshold")
+	assert.GreaterOrEqual(t, pingCount, 1, "active stream data must not delay the fixed ping trigger")
 }
 
-func TestStreamScannerHandler_PingStartsAfterIdleThreshold(t *testing.T) {
+func TestStreamScannerHandler_PingContinuesAfterRealDataResumes(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
-	oldThreshold := setting.PingIdleThresholdSeconds
+	oldTrigger := setting.PingTriggerSeconds
 	oldSeconds := setting.PingIntervalSeconds
 	setting.PingIntervalEnabled = true
-	setting.PingIdleThresholdSeconds = 1
+	setting.PingTriggerSeconds = 1
 	setting.PingIntervalSeconds = 1
 	t.Cleanup(func() {
 		setting.PingIntervalEnabled = oldEnabled
-		setting.PingIdleThresholdSeconds = oldThreshold
+		setting.PingTriggerSeconds = oldTrigger
 		setting.PingIntervalSeconds = oldSeconds
 	})
 
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		time.Sleep(2200 * time.Millisecond)
+		time.Sleep(1200 * time.Millisecond)
 		fmt.Fprint(pw, "data: resumed\n")
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(1200 * time.Millisecond)
 		fmt.Fprint(pw, "data: [DONE]\n")
 	}()
 
@@ -377,14 +377,14 @@ func TestStreamScannerHandler_PingStartsAfterIdleThreshold(t *testing.T) {
 func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
 	setting := operation_setting.GetGeneralSetting()
 	oldEnabled := setting.PingIntervalEnabled
-	oldThreshold := setting.PingIdleThresholdSeconds
+	oldTrigger := setting.PingTriggerSeconds
 	oldSeconds := setting.PingIntervalSeconds
 	setting.PingIntervalEnabled = true
-	setting.PingIdleThresholdSeconds = 1
+	setting.PingTriggerSeconds = 1
 	setting.PingIntervalSeconds = 1
 	t.Cleanup(func() {
 		setting.PingIntervalEnabled = oldEnabled
-		setting.PingIdleThresholdSeconds = oldThreshold
+		setting.PingTriggerSeconds = oldTrigger
 		setting.PingIntervalSeconds = oldSeconds
 	})
 

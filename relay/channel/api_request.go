@@ -396,7 +396,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	return targetConn, nil
 }
 
-func startPingKeepAlive(c *gin.Context, idleThreshold time.Duration, pingInterval time.Duration) (context.CancelFunc, <-chan struct{}) {
+func startPingKeepAlive(c *gin.Context, triggerDelay time.Duration, pingInterval time.Duration) (context.CancelFunc, <-chan struct{}) {
 	pingerCtx, stopPinger := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
@@ -413,11 +413,11 @@ func startPingKeepAlive(c *gin.Context, idleThreshold time.Duration, pingInterva
 		if pingInterval <= 0 {
 			pingInterval = helper.DefaultPingInterval
 		}
-		if idleThreshold <= 0 {
-			idleThreshold = helper.DefaultPingIdleThreshold
+		if triggerDelay <= 0 {
+			triggerDelay = helper.DefaultPingTriggerDelay
 		}
 
-		ticker := time.NewTimer(idleThreshold)
+		ticker := time.NewTimer(triggerDelay)
 		// 确保在任何情况下都清理ticker
 		defer func() {
 			ticker.Stop()
@@ -497,9 +497,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
 		if generalSettings.PingIntervalEnabled && !info.DisablePing {
-			idleThreshold := time.Duration(generalSettings.PingIdleThresholdSeconds) * time.Second
+			triggerDelay := time.Duration(generalSettings.PingTriggerSeconds) * time.Second
 			pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
-			stopPinger, pingerDone = startPingKeepAlive(c, idleThreshold, pingInterval)
+			stopPinger, pingerDone = startPingKeepAlive(c, triggerDelay, pingInterval)
 			// 使用defer确保在任何情况下都能停止ping goroutine
 			defer func() {
 				if stopPinger != nil {

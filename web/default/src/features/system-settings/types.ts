@@ -192,7 +192,7 @@ export type ModelSettings = {
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'general_setting.ping_interval_enabled': boolean
-  'general_setting.ping_idle_threshold_seconds': number
+  'general_setting.ping_trigger_seconds': number
   'general_setting.ping_interval_seconds': number
   'gemini.safety_settings': string
   'gemini.version_settings': string

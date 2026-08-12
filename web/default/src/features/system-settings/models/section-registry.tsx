@@ -58,8 +58,8 @@ const MODELS_SECTIONS = [
           general_setting: {
             ping_interval_enabled:
               settings['general_setting.ping_interval_enabled'],
-            ping_idle_threshold_seconds:
-              settings['general_setting.ping_idle_threshold_seconds'],
+            ping_trigger_seconds:
+              settings['general_setting.ping_trigger_seconds'],
             ping_interval_seconds:
               settings['general_setting.ping_interval_seconds'],
           },
