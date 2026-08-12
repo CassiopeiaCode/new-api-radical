@@ -401,7 +401,9 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
               {t("Outbound credential protection")}
             </Label>
             <p className="text-muted-foreground text-xs sm:text-sm">
-              {t("Block suspected API keys before they are sent upstream")}
+              {profile?.leak_protection_balanced_forced
+                ? t("Enabled by the administrator and cannot be disabled")
+                : t("Block suspected API keys before they are sent upstream")}
             </p>
           </div>
           <Switch

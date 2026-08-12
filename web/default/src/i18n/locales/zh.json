@@ -5187,6 +5187,9 @@
     "Active task history": "活跃任务历史",
     "Global slots": "全局槽位",
     "Failed to load active tasks": "加载活跃任务失败",
-    "Activity window": "活跃度时间窗口"
+    "Activity window": "活跃度时间窗口",
+    "Outbound credential protection": "出站凭据泄漏防护",
+    "Block suspected API keys before they are sent upstream": "在请求发送到上游前拦截疑似 API 密钥",
+    "Enabled by the administrator and cannot be disabled": "管理员已强制开启，无法关闭"
   }
 }

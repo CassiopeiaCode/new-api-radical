@@ -5187,6 +5187,9 @@
     "Active task history": "Active task history",
     "Global slots": "Global slots",
     "Failed to load active tasks": "Failed to load active tasks",
-    "Activity window": "Activity window"
+    "Activity window": "Activity window",
+    "Outbound credential protection": "Outbound credential protection",
+    "Block suspected API keys before they are sent upstream": "Block suspected API keys before they are sent upstream",
+    "Enabled by the administrator and cannot be disabled": "Enabled by the administrator and cannot be disabled"
   }
 }
