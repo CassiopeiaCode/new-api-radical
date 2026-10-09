@@ -16,8 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { useSearch } from '@tanstack/react-router'
 import { useMemo, useCallback, useState } from 'react'
+
+import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 
 import {
   FILTER_ALL,
@@ -29,6 +32,7 @@ import {
   type ViewMode,
 } from '../constants'
 import { filterAndSortModels, extractAllTags } from '../lib/filters'
+import { sortModelsByHealth } from '../lib/health-sort'
 import type { PricingModel, TokenUnit } from '../types'
 
 type FilterState = {
@@ -66,8 +70,26 @@ export function useFilters(models: PricingModel[]) {
     rechargePrice: search.rechargePrice,
   }))
 
+  const perfQuery = useQuery({
+    queryKey: ['perf-metrics-summary', 24],
+    queryFn: () => getPerfMetricsSummary(24),
+    enabled: models.length > 0,
+    staleTime: 60 * 1000,
+    retry: false,
+  })
+  const healthRates = useMemo(() => {
+    const rates = new Map<string, number>()
+    for (const model of perfQuery.data?.data.models ?? []) {
+      const rate = model.health_trends?.last_24h
+      if (typeof rate === 'number' && Number.isFinite(rate)) {
+        rates.set(model.model_name, rate)
+      }
+    }
+    return rates
+  }, [perfQuery.data])
+
   const searchInput = filterState.search || ''
-  const sortBy = filterState.sort || SORT_OPTIONS.NAME
+  const sortBy = filterState.sort || SORT_OPTIONS.HEALTH
   const vendorFilter = filterState.vendor || FILTER_ALL
   const groupFilter = filterState.group || FILTER_ALL
   const quotaTypeFilter = filterState.quotaType || QUOTA_TYPES.ALL
@@ -96,7 +118,7 @@ export function useFilters(models: PricingModel[]) {
   )
   const setSortBy = useCallback(
     (v: string) =>
-      updateFilters({ sort: v === SORT_OPTIONS.NAME ? undefined : v }),
+      updateFilters({ sort: v === SORT_OPTIONS.HEALTH ? undefined : v }),
     [updateFilters]
   )
   const setVendorFilter = useCallback(
@@ -146,7 +168,7 @@ export function useFilters(models: PricingModel[]) {
   const filteredModels = useMemo(() => {
     if (!models || models.length === 0) return []
 
-    return filterAndSortModels(models, {
+    const filtered = filterAndSortModels(models, {
       search: searchInput,
       vendor: vendorFilter,
       group: groupFilter,
@@ -155,6 +177,9 @@ export function useFilters(models: PricingModel[]) {
       tag: tagFilter,
       sortBy,
     })
+    return sortBy === SORT_OPTIONS.HEALTH
+      ? sortModelsByHealth(filtered, healthRates)
+      : filtered
   }, [
     models,
     searchInput,
@@ -164,6 +189,7 @@ export function useFilters(models: PricingModel[]) {
     endpointTypeFilter,
     tagFilter,
     sortBy,
+    healthRates,
   ])
 
   const hasActiveFilters = useMemo(
