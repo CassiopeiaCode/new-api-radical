@@ -44,3 +44,35 @@ func TestHealthTrendsUseNilForEmptyWindows(t *testing.T) {
 	require.Nil(t, trends.LastHour)
 	require.Nil(t, trends.Last5Minutes)
 }
+
+func TestDisplaySuccessRateSelectsHigherAlgorithm(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		buckets map[int64]counters
+		want    float64
+	}{
+		{"bucket average wins", map[int64]counters{0: {requestCount: 1, successCount: 1}, 300: {requestCount: 9}}, 50},
+		{"request weighted wins", map[int64]counters{0: {requestCount: 9, successCount: 9}, 300: {requestCount: 1}}, 90},
+		{"empty buckets ignored", map[int64]counters{0: {}, 300: {requestCount: 4, successCount: 3}}, 75},
+		{"no traffic", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, displaySuccessRate(tc.buckets)) })
+	}
+}
+
+func TestHealthTrendWindowsExcludeOlderTraffic(t *testing.T) {
+	const now int64 = 86400
+	buckets := map[int64]counters{
+		now:         {requestCount: 10, successCount: 10},
+		now - 1800:  {requestCount: 10},
+		now - 7200:  {requestCount: 10},
+		now - 25200: {requestCount: 10},
+		now - 46800: {requestCount: 10},
+	}
+	trends := healthTrends(buckets, now, 300)
+	require.Equal(t, 20.0, *trends.Last24Hours)
+	require.Equal(t, 25.0, *trends.Last12Hours)
+	require.Equal(t, 33.33, *trends.Last6Hours)
+	require.Equal(t, 50.0, *trends.LastHour)
+	require.Equal(t, 100.0, *trends.Last10Minutes)
+}

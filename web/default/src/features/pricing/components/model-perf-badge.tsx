@@ -29,6 +29,9 @@ export type ModelPerfBadgeData = {
   recent_success_rates?: number[]
   health_trends?: {
     last_24h: number | null
+    last_12h: number | null
+    last_6h: number | null
+    last_10m: number | null
     last_1h: number | null
     last_5m: number | null
   }
@@ -64,27 +67,15 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
     return null
   }
 
-  const { avg_latency_ms, avg_tps, success_rate } = props.perf
-
+  const { avg_latency_ms, avg_tps } = props.perf
   const healthTrends = props.perf.health_trends
-  const recentRates =
-    props.perf.recent_success_rates?.filter((rate) => Number.isFinite(rate)) ??
-    []
-  const fallbackSource = recentRates.length > 0 ? recentRates : [success_rate]
-  const fallbackRates = [
-    ...Array(Math.max(0, 3 - fallbackSource.length)).fill(null),
-    ...fallbackSource.slice(-3),
-  ].slice(-3)
-  const statusBars = healthTrends
-    ? [
-        { label: '24h', rate: healthTrends.last_24h },
-        { label: '1h', rate: healthTrends.last_1h },
-        { label: '5m', rate: healthTrends.last_5m },
-      ]
-    : fallbackRates.map((rate, index) => ({
-        label: ['24h', '1h', '5m'][index],
-        rate,
-      }))
+  const statusBars = [
+    { label: '24h', rate: healthTrends?.last_24h },
+    { label: '12h', rate: healthTrends?.last_12h },
+    { label: '6h', rate: healthTrends?.last_6h },
+    { label: '1h', rate: healthTrends?.last_1h },
+    { label: '10min', rate: healthTrends?.last_10m },
+  ]
 
   const statusTitle = statusBars
     .map(
@@ -96,7 +87,7 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
   return (
     <div
       className={cn(
-        'hidden w-[132px] grid-cols-[38px_48px_30px] gap-x-2 text-right tabular-nums min-[460px]:grid',
+        'hidden w-[144px] grid-cols-[38px_48px_42px] gap-x-2 text-right tabular-nums min-[460px]:grid',
         props.className
       )}
     >
@@ -116,9 +107,26 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
           {formatCompactThroughput(avg_tps)}
         </div>
       </div>
-      <div title={`${t('Success rate')}: ${statusTitle}`} className='min-w-0'>
+      <div
+        title={`${t('Success rate')}: ${statusTitle}`}
+        aria-label={`${t('Success rate')}: ${statusTitle}`}
+        tabIndex={0}
+        className='group/status focus-visible:ring-ring relative min-w-0 outline-none focus-visible:ring-2'
+      >
         <div className='text-muted-foreground/55 truncate text-[10px] leading-4'>
           {t('Status short')}
+        </div>
+        <div className='bg-popover text-popover-foreground pointer-events-none absolute right-0 bottom-full z-50 mb-2 hidden w-max rounded-md border px-3 py-2 text-xs shadow-md group-focus-within/status:block group-hover/status:block'>
+          {statusBars.map(({ label, rate }) => (
+            <div key={label} className='flex justify-between gap-4 leading-5'>
+              <span>{label}</span>
+              <span>
+                {typeof rate === 'number' && Number.isFinite(rate)
+                  ? `${rate.toFixed(2)}%`
+                  : '—'}
+              </span>
+            </div>
+          ))}
         </div>
         <div className='flex h-4 items-center justify-end gap-0.5'>
           {statusBars.map(({ label, rate }, index) => (
@@ -130,10 +138,10 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
                 index === 0 && 'h-2',
                 index === 1 && 'h-2.5',
                 index === 2 && 'h-3',
+                index === 3 && 'h-3.5',
+                index === 4 && 'h-4',
                 typeof rate !== 'number' || !Number.isFinite(rate)
-                  ? index === 0
-                    ? 'bg-muted-foreground/10'
-                    : 'bg-muted-foreground/15'
+                  ? 'bg-muted-foreground/15'
                   : getPricingHealthTrendDotClass(rate)
               )}
             />

@@ -50,6 +50,7 @@ type SparklineSize = 'sm' | 'md'
 
 type UptimeSparklineProps = {
   series: UptimeDayPoint[]
+  successRate?: number
   size?: SparklineSize
   showOverall?: boolean
   emptyLabel?: string
@@ -77,6 +78,7 @@ export function UptimeSparkline(props: UptimeSparklineProps) {
   }
 
   const overall =
+    props.successRate ??
     props.series.reduce((s, p) => s + p.uptime_pct, 0) / props.series.length
 
   const containerHeight = size === 'sm' ? 'h-3.5' : 'h-5'
@@ -156,30 +158,24 @@ export function UptimeStatusRow(props: {
     return 'major'
   }, [summary.uptime_pct])
 
-  const StatusIcon =
-    status === 'operational'
-      ? CheckCircle2
-      : status === 'minor'
-        ? Activity
-        : AlertCircle
-
-  const statusColour =
-    status === 'operational'
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : status === 'minor'
-        ? 'text-emerald-600 dark:text-emerald-400'
-        : status === 'degraded'
-          ? 'text-amber-600 dark:text-amber-400'
-          : 'text-rose-600 dark:text-rose-400'
-
-  const statusLabel =
-    status === 'operational'
-      ? t('All systems operational')
-      : status === 'minor'
-        ? t('Minor blips in the last 30 days')
-        : status === 'degraded'
-          ? t('Degraded performance recently')
-          : t('Significant outages detected')
+  const StatusIcon = {
+    operational: CheckCircle2,
+    minor: Activity,
+    degraded: AlertCircle,
+    major: AlertCircle,
+  }[status]
+  const statusColour = {
+    operational: 'text-emerald-600 dark:text-emerald-400',
+    minor: 'text-emerald-600 dark:text-emerald-400',
+    degraded: 'text-amber-600 dark:text-amber-400',
+    major: 'text-rose-600 dark:text-rose-400',
+  }[status]
+  const statusLabel = {
+    operational: t('All systems operational'),
+    minor: t('Minor blips in the last 30 days'),
+    degraded: t('Degraded performance recently'),
+    major: t('Significant outages detected'),
+  }[status]
 
   return (
     <div

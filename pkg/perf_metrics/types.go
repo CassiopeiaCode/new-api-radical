@@ -58,9 +58,12 @@ type ModelSummary struct {
 }
 
 type HealthTrends struct {
-	Last24Hours  *float64 `json:"last_24h"`
-	LastHour     *float64 `json:"last_1h"`
-	Last5Minutes *float64 `json:"last_5m"`
+	Last24Hours   *float64 `json:"last_24h"`
+	Last12Hours   *float64 `json:"last_12h"`
+	Last6Hours    *float64 `json:"last_6h"`
+	Last10Minutes *float64 `json:"last_10m"`
+	LastHour      *float64 `json:"last_1h"`
+	Last5Minutes  *float64 `json:"last_5m"`
 }
 
 type SummaryAllResult struct {

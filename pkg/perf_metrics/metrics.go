@@ -179,7 +179,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 			continue
 		}
 		avgLatency := total.totalLatencyMs / total.requestCount
-		successRate := float64(total.successCount) / float64(total.requestCount) * 100
+		successRate := displaySuccessRate(modelBuckets[name])
 		avgTps := 0.0
 		if total.generationMs > 0 {
 			avgTps = float64(total.outputTokens) / (float64(total.generationMs) / 1000.0)
@@ -203,9 +203,12 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 
 func healthTrends(buckets map[int64]counters, currentBucket int64, bucketSeconds int64) HealthTrends {
 	return HealthTrends{
-		Last24Hours:  windowSuccessRate(buckets, currentBucket, bucketSeconds, 24*time.Hour),
-		LastHour:     windowSuccessRate(buckets, currentBucket, bucketSeconds, time.Hour),
-		Last5Minutes: windowSuccessRate(buckets, currentBucket, bucketSeconds, 5*time.Minute),
+		Last24Hours:   windowSuccessRate(buckets, currentBucket, bucketSeconds, 24*time.Hour),
+		Last12Hours:   windowSuccessRate(buckets, currentBucket, bucketSeconds, 12*time.Hour),
+		Last6Hours:    windowSuccessRate(buckets, currentBucket, bucketSeconds, 6*time.Hour),
+		Last10Minutes: windowSuccessRate(buckets, currentBucket, bucketSeconds, 10*time.Minute),
+		LastHour:      windowSuccessRate(buckets, currentBucket, bucketSeconds, time.Hour),
+		Last5Minutes:  windowSuccessRate(buckets, currentBucket, bucketSeconds, 5*time.Minute),
 	}
 }
 
@@ -217,18 +220,20 @@ func windowSuccessRate(buckets map[int64]counters, currentBucket int64, bucketSe
 
 	earliestBucket := currentBucket - windowSeconds + bucketSeconds
 	total := counters{}
+	selected := map[int64]counters{}
 	for ts, value := range buckets {
 		if ts < earliestBucket || ts > currentBucket {
 			continue
 		}
 		total.requestCount += value.requestCount
 		total.successCount += value.successCount
+		selected[ts] = value
 	}
 	if total.requestCount == 0 {
 		return nil
 	}
 
-	rate := math.Round(successRate(total)*100) / 100
+	rate := math.Round(displaySuccessRate(selected)*100) / 100
 	return &rate
 }
 
@@ -367,7 +372,7 @@ func buildQueryResult(modelName string, merged map[bucketKey]counters) QueryResu
 			Group:        group,
 			AvgTtftMs:    avg(total.ttftSumMs, total.ttftCount),
 			AvgLatencyMs: avg(total.totalLatencyMs, total.requestCount),
-			SuccessRate:  successRate(total),
+			SuccessRate:  displaySuccessRate(buckets),
 			AvgTps:       avgTps(total),
 			Series:       series,
 		})
@@ -459,4 +464,25 @@ func mergeRedisActiveBuckets(merged map[bucketKey]counters, params QueryParams, 
 
 func redisBucketKey(key bucketKey) string {
 	return fmt.Sprintf("perf:%s:%s:%d", key.model, key.group, key.bucketTs)
+}
+
+// displaySuccessRate selects the higher request-weighted or bucket-average rate.
+// This presentation metric does not change recorded success/failure counters.
+func displaySuccessRate(buckets map[int64]counters) float64 {
+	total := counters{}
+	sum := 0.0
+	count := 0
+	for _, value := range buckets {
+		if value.requestCount <= 0 {
+			continue
+		}
+		total.requestCount += value.requestCount
+		total.successCount += value.successCount
+		sum += successRate(value)
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return math.Max(successRate(total), sum/float64(count))
 }
