@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { getPricingHealthTrendDotClass } from '@/features/performance-metrics/lib/format'
 import { cn } from '@/lib/utils'
 
 export type ModelPerfBadgeData = {
@@ -129,23 +128,26 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
           ))}
         </div>
         <div className='flex h-4 items-center justify-end gap-0.5'>
-          {statusBars.map(({ label, rate }, index) => (
-            <span
-              key={label}
-              title={`${label}: ${typeof rate === 'number' && Number.isFinite(rate) ? `${rate.toFixed(1)}%` : '—'}`}
-              className={cn(
-                'w-1 rounded-full',
-                index === 0 && 'h-2',
-                index === 1 && 'h-2.5',
-                index === 2 && 'h-3',
-                index === 3 && 'h-3.5',
-                index === 4 && 'h-4',
-                typeof rate !== 'number' || !Number.isFinite(rate)
-                  ? 'bg-muted-foreground/15'
-                  : getPricingHealthTrendDotClass(rate)
-              )}
-            />
-          ))}
+          {statusBars.map(({ label, rate }) => {
+            let backgroundColor = 'var(--muted-foreground)'
+            const hasRate = typeof rate === 'number' && Number.isFinite(rate)
+            if (hasRate) {
+              const boundedRate = Math.min(100, Math.max(0, rate))
+              if (boundedRate <= 60) {
+                backgroundColor = `color-mix(in oklch, var(--destructive), var(--warning) ${(boundedRate / 60) * 100}%)`
+              } else {
+                backgroundColor = `color-mix(in oklch, var(--warning), var(--success) ${((boundedRate - 60) / 40) * 100}%)`
+              }
+            }
+            return (
+              <span
+                key={label}
+                title={`${label}: ${hasRate ? `${rate.toFixed(1)}%` : '—'}`}
+                className={cn('h-3 w-1 rounded-full', !hasRate && 'opacity-20')}
+                style={{ backgroundColor }}
+              />
+            )
+          })}
         </div>
       </div>
     </div>
