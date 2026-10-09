@@ -246,7 +246,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       </p>
 
       {/* Footer: left metadata and right performance summary share row alignment */}
-      <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>
+      <div className='mt-2 grid grid-cols-1 items-start gap-x-2 gap-y-1 min-[460px]:grid-cols-[minmax(0,1fr)_auto] sm:mt-4'>
         <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
           {primaryGroup && (
             <span className='text-muted-foreground text-sm font-medium'>
@@ -255,7 +255,10 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           )}
           <ModelBillingModeBadge model={props.model} />
         </div>
-        <ModelPerfBadge perf={props.perf} className='row-span-2 self-start' />
+        <ModelPerfBadge
+          perf={props.perf}
+          className='row-start-3 mt-2 border-t pt-2 min-[460px]:col-start-2 min-[460px]:row-span-2 min-[460px]:row-start-1 min-[460px]:mt-0 min-[460px]:self-start min-[460px]:border-t-0 min-[460px]:pt-0'
+        />
 
         <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 sm:gap-x-3 sm:gap-y-1'>
           {bottomTags.map((item) => (

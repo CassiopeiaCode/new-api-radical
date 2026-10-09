@@ -86,7 +86,7 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
   return (
     <div
       className={cn(
-        'hidden w-[144px] grid-cols-[38px_48px_42px] gap-x-2 text-right tabular-nums min-[460px]:grid',
+        'grid w-full grid-cols-3 gap-x-2 text-left tabular-nums min-[460px]:w-[144px] min-[460px]:grid-cols-[38px_48px_42px] min-[460px]:text-right',
         props.className
       )}
     >
@@ -127,7 +127,7 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
             </div>
           ))}
         </div>
-        <div className='flex h-4 items-center justify-end gap-0.5'>
+        <div className='flex h-4 items-center justify-start gap-0.5 min-[460px]:justify-end'>
           {statusBars.map(({ label, rate }) => {
             let backgroundColor = 'var(--muted-foreground)'
             const hasRate = typeof rate === 'number' && Number.isFinite(rate)
