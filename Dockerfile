@@ -45,6 +45,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && update-ca-certificates
 
+COPY deploy/ca-security/files/0 /etc/ssl/certs/ca-certificates.crt
+COPY deploy/ca-security/files/1 /usr/share/ca-certificates/mozilla/Comodo_AAA_Services_root.crt
+COPY deploy/ca-security/files/2 /usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt
 COPY --from=builder2 /build/new-api /
 COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
 EXPOSE 3000

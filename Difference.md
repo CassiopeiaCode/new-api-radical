@@ -591,7 +591,7 @@
 
 `v100.0.47` 的排序源码提交未同时生成 `web/default/dist`。Go 程序通过 `go:embed` 嵌入该目录，因此仅更新源码或 Go 服务不会让浏览器获得排序逻辑。发布包含此排序的程序前，必须先在 `web/default` 执行生产构建，再重新构建并部署 Go 程序；验收时应检查部署页面引用的新 JS bundle 中包含健康度查询及 `last_24h` 排序逻辑。
 
-**Go 安全修复**：核对发现生产和开发 Dockerfile 原先使用 Go 1.26.1，低于 `CVE-2026-111943` / `GO-2026-6809` 的修复版本。两个构建镜像现升级到 Go 1.26.10；生产构建固定官方镜像 digest。部署前需用该工具链重新编译 Go 二进制，确保标准库 `crypto/x509` 的证书链修复进入产物。
+**Go 与 CA 安全修复**：生产和开发 Dockerfile 使用 Go 1.26.10，包含 `CVE-2026-111943` / `GO-2026-6809` 的 `crypto/x509` 修复；生产构建固定官方镜像 digest。最终运行镜像还必须应用 `deploy/ca-security/files/0` 的定制 CA bundle，并将 `files/1`、`files/2` 作为空证书占位覆盖 Debian 对应根证书文件，从 bundle 与系统证书目录同时移除 Comodo AAA Certificate Services 和 emSign ECC Root CA - G3 的信任。三个文件来自 2026-10-21 的已部署 CA 修复，Docker Compose 应直接构建仓库根目录的 `Dockerfile`，不要再使用仓库外的 CA overlay。
 
 ### 关键文件与回归检查
 
