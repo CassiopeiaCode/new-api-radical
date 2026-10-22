@@ -591,7 +591,7 @@
 
 `v100.0.47` 的排序源码提交未同时生成 `web/default/dist`。Go 程序通过 `go:embed` 嵌入该目录，因此仅更新源码或 Go 服务不会让浏览器获得排序逻辑。发布包含此排序的程序前，必须先在 `web/default` 执行生产构建，再重新构建并部署 Go 程序；验收时应检查部署页面引用的新 JS bundle 中包含健康度查询及 `last_24h` 排序逻辑。
 
-**Go 与 CA 安全修复**：生产和开发 Dockerfile 使用 Go 1.26.10，包含 [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809) 的 `crypto/x509` 修复；该 Go 补丁按 SHA-256 SPKI 精确拒绝 8 张已撤销的 eMudhra 中间证书。Mozilla [事件公告](https://blog.mozilla.org/security/2026/10/20/protecting-firefox-users-following-the-compromise-of-emudhra-intermediate-certificates/)与 NSS 更新明确移除其签发根 `emSign Root CA - G3`，运行镜像仅从系统信任库移除该根，不移除 Comodo AAA Certificate Services 或其他 emSign 根。生产构建固定官方镜像 digest，GHCR 发布由稳定版本 tag 触发；部署 compose 只引用 GHCR 镜像，不执行本机或远程构建，也不挂载宿主机二进制覆盖镜像内程序。
+**Go 与 CA 安全修复**：生产和开发 Dockerfile 使用 Go 1.26.10，包含 [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809) 的 `crypto/x509` 修复；该 Go 补丁按 SHA-256 SPKI 精确拒绝 8 张已撤销的 eMudhra 中间证书。Debian 高优先级 `ca-certificates 20250419~deb12u2` 更新（[bug #1151413](https://bugs.debian.org/1151413)）将 `Comodo AAA Services root` 和 `emSign ECC Root CA - G3` 加入黑名单；Mozilla [事件公告](https://blog.mozilla.org/security/2026/10/20/protecting-firefox-users-following-the-compromise-of-emudhra-intermediate-certificates/)与 NSS 更新移除签发相关中间证书的 `emSign Root CA - G3`。运行镜像使用 Debian 更新后的 CA 包，并显式从信任库移除 `emSign Root CA - G3`；其他 emSign 根保留。生产构建固定官方镜像 digest，GHCR 发布由稳定版本 tag 触发；部署 compose 只引用 GHCR 镜像，不执行本机或远程构建，也不挂载宿主机二进制覆盖镜像内程序。
 
 ### 关键文件与回归检查
 
