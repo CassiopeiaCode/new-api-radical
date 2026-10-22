@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -240,6 +241,15 @@ func buildRankingModelMeta() map[string]rankingModelMeta {
 	}
 
 	meta := make(map[string]rankingModelMeta)
+	// Historical usage can outlive the channel ability and pricing entry.
+	var historical []model.Model
+	if err := model.DB.Select("model_name", "vendor_id").Where("status = ? AND name_rule = ?", 1, model.NameRuleExact).Find(&historical).Error; err == nil {
+		for _, entry := range historical {
+			if vendor, ok := vendorByID[entry.VendorID]; ok {
+				meta[entry.ModelName] = rankingModelMeta{vendor: vendor.Name, vendorIcon: vendor.Icon}
+			}
+		}
+	}
 	for _, pricing := range model.GetPricing() {
 		item := rankingModelMeta{vendor: rankingUnknownVendor}
 		if vendor, ok := vendorByID[pricing.VendorID]; ok {
@@ -248,14 +258,34 @@ func buildRankingModelMeta() map[string]rankingModelMeta {
 		} else if pricing.OwnerBy != "" {
 			item.vendor = pricing.OwnerBy
 		}
-		meta[pricing.ModelName] = item
+		if item.vendor != rankingUnknownVendor || meta[pricing.ModelName].vendor == "" {
+			meta[pricing.ModelName] = item
+		}
 	}
 	return meta
 }
 
 func modelMeta(modelName string, meta map[string]rankingModelMeta) rankingModelMeta {
-	if item, ok := meta[modelName]; ok && item.vendor != "" {
+	if item, ok := meta[modelName]; ok && item.vendor != "" && item.vendor != rankingUnknownVendor {
 		return item
+	}
+	// Infer from the requested model family, never from fingerprint/alias notes.
+	name := strings.ToLower(strings.SplitN(modelName, "(", 2)[0])
+	leaf := name[strings.LastIndex(name, "/")+1:]
+	for _, rule := range []struct{ prefix, vendor, icon string }{
+		{"claude", "Anthropic", "Claude.Color"}, {"deepseek", "DeepSeek", "DeepSeek.Color"},
+		{"gpt", "OpenAI", "OpenAI"}, {"vip-gpt", "OpenAI", "OpenAI"},
+		{"gemini", "Google", "Gemini.Color"}, {"gemma", "Google", "Gemini.Color"},
+		{"glm", "智谱", "Zhipu.Color"}, {"chatglm", "智谱", "Zhipu.Color"},
+		{"qwen", "阿里巴巴", "Qwen.Color"}, {"kimi", "Moonshot", "Moonshot"},
+		{"minimax", "MiniMax", "Minimax.Color"}, {"grok", "xAI", "XAI"},
+		{"llama", "Meta", "Ollama"}, {"nemotron", "NVIDIA", "Nvidia"},
+		{"mistral", "Mistral", "Mistral.Color"}, {"ministral", "Mistral", "Mistral.Color"},
+		{"codestral", "Mistral", "Mistral.Color"}, {"openrouter", "OpenRouter", "OpenRouter"},
+	} {
+		if strings.HasPrefix(leaf, rule.prefix) {
+			return rankingModelMeta{vendor: rule.vendor, vendorIcon: rule.icon}
+		}
 	}
 	return rankingModelMeta{vendor: rankingUnknownVendor}
 }
