@@ -43,11 +43,10 @@ FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tzdata libasan8 wget \
     && rm -rf /var/lib/apt/lists/* \
-    && update-ca-certificates
+    && rm -f /usr/share/ca-certificates/mozilla/emSign_Root_CA_-_G3.crt \
+    && sed -i '\|^mozilla/emSign_Root_CA_-_G3.crt$|d' /etc/ca-certificates.conf \
+    && update-ca-certificates --fresh
 
-COPY deploy/ca-security/files/0 /etc/ssl/certs/ca-certificates.crt
-COPY deploy/ca-security/files/1 /usr/share/ca-certificates/mozilla/Comodo_AAA_Services_root.crt
-COPY deploy/ca-security/files/2 /usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt
 COPY --from=builder2 /build/new-api /
 COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
 EXPOSE 3000
